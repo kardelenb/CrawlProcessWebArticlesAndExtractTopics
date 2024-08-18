@@ -56,6 +56,15 @@ class BlogSpider(CrawlSpider):
         Rule(LinkExtractor(), follow=True),
     )
 
+    custom_settings = {
+        'DOWNLOAD_DELAY': 3,  # 3 Sekunden Verzögerung zwischen den Anfragen
+        'AUTOTHROTTLE_ENABLED': True,  # AutoThrottle aktivieren
+        'AUTOTHROTTLE_START_DELAY': 3,  # Anfangsverzögerung für AutoThrottle
+        'AUTOTHROTTLE_MAX_DELAY': 60,  # Maximale Verzögerung
+        'AUTOTHROTTLE_TARGET_CONCURRENCY': 1.0,  # Durchschnittliche Anzahl gleichzeitiger Anfragen
+        'AUTOTHROTTLE_DEBUG': False,  # Debug-Informationen von AutoThrottle
+    }
+
     def parse_post(self, response):
         # Extrahiere den Titel aus dem <a>-Tag mit der Klasse 'sez-post-title'
         title = response.css('a.sez-post-title::text').getall()
