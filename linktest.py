@@ -49,21 +49,13 @@ class BlogSpider(CrawlSpider):
     allowed_domains = ['sezession.de']
     start_urls = ['https://sezession.de/']
 
-    rules = (
-        # Extrahiere Links und folge ihnen, wenn sie zu Artikeln führen
-        Rule(LinkExtractor(allow='/[0-9]{4}/[0-9]{2}/'), callback='parse_post', follow=True),
-        # Extrahiere und folge allen anderen Links auf der Seite
-        Rule(LinkExtractor(), follow=True),
-    )
+    # rules = (
+    #     # Extrahiere Links und folge ihnen, wenn sie zu Artikeln führen
+    #     Rule(LinkExtractor(allow='/[0-9]{4}/[0-9]{2}/'), callback='parse_post', follow=True),
+    #     # Extrahiere und folge allen anderen Links auf der Seite
+    #     Rule(LinkExtractor(), follow=True),
+    # )
 
-    custom_settings = {
-        'DOWNLOAD_DELAY': 3,  # 3 Sekunden Verzögerung zwischen den Anfragen
-        'AUTOTHROTTLE_ENABLED': True,  # AutoThrottle aktivieren
-        'AUTOTHROTTLE_START_DELAY': 3,  # Anfangsverzögerung für AutoThrottle
-        'AUTOTHROTTLE_MAX_DELAY': 60,  # Maximale Verzögerung
-        'AUTOTHROTTLE_TARGET_CONCURRENCY': 1.0,  # Durchschnittliche Anzahl gleichzeitiger Anfragen
-        'AUTOTHROTTLE_DEBUG': False,  # Debug-Informationen von AutoThrottle
-    }
 
     def parse_post(self, response):
         # Extrahiere den Titel aus dem <a>-Tag mit der Klasse 'sez-post-title'
