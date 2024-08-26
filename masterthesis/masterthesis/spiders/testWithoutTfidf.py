@@ -97,37 +97,45 @@ class MyCombinedSpider(SitemapSpider):
         # Keywords extrahieren basierend auf Wortarten (nur NOUN, PROPN, ADJ. VERB)
         filtered_words = extract_keywords_by_pos(full_text, language)
 
-        # TF-IDF Ranking
-        vectorizer = TfidfVectorizer()
-        tfidf_matrix = vectorizer.fit_transform([' '.join(filtered_words)])
-        tfidf_scores = zip(vectorizer.get_feature_names_out(), tfidf_matrix.toarray()[0])
-        ranked_keywords = sorted(tfidf_scores, key=lambda x: x[1], reverse=True)
+        # # TF-IDF Ranking
+        # vectorizer = TfidfVectorizer()
+        # tfidf_matrix = vectorizer.fit_transform([' '.join(filtered_words)])
+        # tfidf_scores = zip(vectorizer.get_feature_names_out(), tfidf_matrix.toarray()[0])
+        # ranked_keywords = sorted(tfidf_scores, key=lambda x: x[1], reverse=True)
 
         # Vergleich mit WordNet (Englisch) und deutschem Wörterbuch (OdeNet)
         new_words = []
-        for word, score in ranked_keywords:
+        # for word, score in ranked_keywords:
+        for word in filtered_words:
             if wordnet.synsets(word):
                 continue  # Wort ist in WordNet enthalten
             if is_word_in_odenet(word):
                 continue  # Wort ist in OdeNet enthalten
             new_words.append({
                 'word': word,
-                'score': score
+                'score': None
             })
 
         yield {
             'title': title,
             'url': response.url,
             'full_text': full_text,
-            'ranked_keywords': [
-                {
-                    'word': word,
-                    'score': score
-                }
-                for word, score in ranked_keywords
-            ],
             'new_words': new_words
         }
+
+        # yield {
+        #     'title': title,
+        #     'url': response.url,
+        #     'full_text': full_text,
+        #     'ranked_keywords': [
+        #         {
+        #             'word': word,
+        #             'score': score
+        #         }
+        #         for word, score in ranked_keywords
+        #     ],
+        #     'new_words': new_words
+        # }
 
     def detect_language(self, text):
         # Einfache Heuristik zur Sprachekennung
@@ -142,3 +150,9 @@ class MyCombinedSpider(SitemapSpider):
     def closed(self, reason):
         # Ausgabe der Gesamtanzahl der gefundenen Links
         self.log(f"Total number of links found: {self.link_count}")
+
+
+
+
+
+
