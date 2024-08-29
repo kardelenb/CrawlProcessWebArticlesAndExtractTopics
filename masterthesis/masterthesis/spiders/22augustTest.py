@@ -1,4 +1,3 @@
-import scrapy
 import spacy
 from scrapy.spiders import SitemapSpider
 from scrapy.crawler import CrawlerProcess
@@ -39,7 +38,7 @@ def is_word_in_odenet(word):
     return bool(synonyms)  # Gibt True zurück, wenn das Wort in einem Synset gefunden wurde
 
 # Funktion zur POS-Tag-Filterung basierend auf der Sprache
-def extract_keywords_by_pos(text, language, pos_tags=['NOUN', 'PROPN', 'ADJ', 'VERB']):
+def extract_keywords_by_pos(text, language, pos_tags=['NOUN', 'ADJ', 'VERB']):
     if language == 'de':
         doc = nlp_de(text)
     else:
@@ -54,7 +53,7 @@ def extract_keywords_by_pos(text, language, pos_tags=['NOUN', 'PROPN', 'ADJ', 'V
         for token in doc
         if token.pos_ in pos_tags
            and not token.is_stop
-           and only_letters.match(token.text)  # Nur Tokens, die ausschließlich aus Buchstaben bestehen
+           and only_letters.match(token.lemma_)  # Nur Tokens, die ausschließlich aus Buchstaben bestehen
     ]
 # Kombinierter SitemapSpider und CrawlSpider
 class MyCombinedSpider(SitemapSpider):
@@ -63,7 +62,11 @@ class MyCombinedSpider(SitemapSpider):
 
     # Liste von Sitemap-URLs
     sitemap_urls = [
-        'https://sezession.de/wp-sitemap-posts-post-1.xml'
+        'https://sezession.de/wp-sitemap-posts-post-1.xml',
+        'https://sezession.de/wp-sitemap-posts-post-2.xml',
+        'https://sezession.de/wp-sitemap-posts-post-3.xml',
+        'https://sezession.de/wp-sitemap-posts-post-4.xml'
+
     ]
 
     sitemap_rules = [
@@ -98,7 +101,7 @@ class MyCombinedSpider(SitemapSpider):
         filtered_words = extract_keywords_by_pos(full_text, language)
 
         # TF-IDF Ranking
-        vectorizer = TfidfVectorizer()
+        vectorizer = TfidfVectorizer(lowercase=False)
         tfidf_matrix = vectorizer.fit_transform([' '.join(filtered_words)])
         tfidf_scores = zip(vectorizer.get_feature_names_out(), tfidf_matrix.toarray()[0])
         ranked_keywords = sorted(tfidf_scores, key=lambda x: x[1], reverse=True)

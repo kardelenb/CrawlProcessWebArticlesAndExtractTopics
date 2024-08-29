@@ -12,4 +12,12 @@ def check_word_in_odenet(word):
         print(f"Das Wort '{word}' ist nicht in OdeNet enthalten.")
 
 # Überprüfen, ob das Wort 'Haus' in OdeNet enthalten ist
-check_word_in_odenet('Migration')
+check_word_in_odenet('Mann')
+
+# Listet alle Funktionen und Attribute der odenet-Bibliothek auf
+odenet_functions = dir(odenet)
+
+# Ausgabe der Funktionen und Attribute
+print("Verfügbare Funktionen und Attribute in OdeNet:")
+for function in odenet_functions:
+    print(function)
