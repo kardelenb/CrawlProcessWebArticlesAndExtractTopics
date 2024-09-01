@@ -86,8 +86,9 @@ class MyCombinedSpider(SitemapSpider):
 
         # Versuche die Absätze aus dem Artikel zu extrahieren und auch alle verschachtelten Elemente
         paragraphs = response.xpath("//p//text()").getall()
+        list_items = response.xpath("//li//text()").getall()
         # Kombiniere alle Absätze und dekodiere HTML-Zeichenreferenzen
-        full_text = ' '.join(html.unescape(text.strip()) for text in paragraphs if text.strip())
+        full_text = ' '.join(html.unescape(text.strip()) for text in paragraphs + list_items if text.strip())
 
         full_text = full_text.replace('\u00AD', '')  # \u00AD ist das Unicode für Soft Hyphen
         full_text = full_text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
