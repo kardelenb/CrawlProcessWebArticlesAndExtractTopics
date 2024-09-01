@@ -10,6 +10,10 @@ import tempfile
 import nltk
 import odenet
 import re
+from HanTa import HanoverTagger as ht  # Importiere HanTa
+
+# Lade den HanTa-Tagger mit dem deutschen Modell
+hannover = ht.HanoverTagger('morphmodel_ger.pgz')
 
 # Lade deutsche und englische spaCy-Modelle
 try:
@@ -37,24 +41,33 @@ def is_word_in_odenet(word):
     synonyms = odenet.synonyms_word(word)
     return bool(synonyms)  # Gibt True zurück, wenn das Wort in einem Synset gefunden wurde
 
+# Funktion zur Lemmatisierung mit HanTa
+def lemmatize_with_hanta(word):
+    lemma = hannover.analyze(word)[0]  # Extrahiere das Lemma mit HanTa
+    return lemma
+
 # Funktion zur POS-Tag-Filterung basierend auf der Sprache
 def extract_keywords_by_pos(text, language, pos_tags=['NOUN', 'ADJ', 'VERB']):
     if language == 'de':
         doc = nlp_de(text)
+        # Verwende HanTa zur Lemmatisierung, da spaCy manchmal Fehler macht
+        lemmatizer = lemmatize_with_hanta
     else:
         doc = nlp_en(text)
+        lemmatizer = lambda token: token.lemma_
 
     # Regex zur Überprüfung, ob ein Wort nur aus Buchstaben besteht
     only_letters = re.compile(r'^[^\W\d_]+$')
 
     # Extrahiere und lemmatisiere Tokens
     return [
-        token.lemma_  # Verwende das Lemma des Tokens
+        lemmatizer(token.text)  # Verwende den ausgewählten Lemmatisierer
         for token in doc
         if token.pos_ in pos_tags
            and not token.is_stop
-           and only_letters.match(token.lemma_)  # Nur Tokens, die ausschließlich aus Buchstaben bestehen
+           and only_letters.match(token.lemma_)
     ]
+
 # Kombinierter SitemapSpider und CrawlSpider
 class MyCombinedSpider(SitemapSpider):
     name = 'my_combined_spider'
@@ -62,10 +75,7 @@ class MyCombinedSpider(SitemapSpider):
 
     # Liste von Sitemap-URLs
     sitemap_urls = [
-        'https://sezession.de/wp-sitemap-posts-post-1.xml',
-        'https://sezession.de/wp-sitemap-posts-post-2.xml',
-        'https://sezession.de/wp-sitemap-posts-post-3.xml',
-        'https://sezession.de/wp-sitemap-posts-post-4.xml'
+        'https://sezession.de/wp-sitemap-posts-post-1.xml'
 
     ]
 
@@ -86,9 +96,8 @@ class MyCombinedSpider(SitemapSpider):
 
         # Versuche die Absätze aus dem Artikel zu extrahieren und auch alle verschachtelten Elemente
         paragraphs = response.xpath("//p//text()").getall()
-        list_items = response.xpath("//li//text()").getall()
         # Kombiniere alle Absätze und dekodiere HTML-Zeichenreferenzen
-        full_text = ' '.join(html.unescape(text.strip()) for text in paragraphs + list_items if text.strip())
+        full_text = ' '.join(html.unescape(text.strip()) for text in paragraphs if text.strip())
 
         full_text = full_text.replace('\u00AD', '')  # \u00AD ist das Unicode für Soft Hyphen
         full_text = full_text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
