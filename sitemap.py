@@ -30,17 +30,6 @@ sitemap_urls = [
         'https://sezession.de/wp-sitemap-posts-post-2.xml',
         'https://sezession.de/wp-sitemap-posts-post-3.xml',
         'https://sezession.de/wp-sitemap-posts-post-4.xml',
-        'https://sezession.de/wp-sitemap-posts-page-1.xml',
-        'https://sezession.de/wp-sitemap-posts-books-1.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-category-1.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-1.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-2.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-3.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-4.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-5.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-6.xml',
-        'https://sezession.de/wp-sitemap-taxonomies-post_tag-7.xml',
-        'https://sezession.de/wp-sitemap-users-1.xml'
 ]
 
 # Speichere die Links in einer JSON-Datei

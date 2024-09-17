@@ -1,14 +1,9 @@
-# Define here the models for your spider middleware
-#
-# See documentation in:
-# https://docs.scrapy.org/en/latest/topics/spider-middleware.html
-
-from scrapy import signals
+import pandas as pd
 import random
+from scrapy import signals
 
-# useful for handling different item types with a single interface
-from itemadapter import is_item, ItemAdapter
-
+# Wenn du itemadapter nicht benötigst, kannst du die Importe weglassen
+# from itemadapter import is_item, ItemAdapter
 
 class MasterthesisSpiderMiddleware:
     # Not all methods need to be defined. If a method is not defined,
@@ -17,7 +12,7 @@ class MasterthesisSpiderMiddleware:
 
     @classmethod
     def from_crawler(cls, crawler):
-        # This method is used by Scrapy to create your spiders.
+        #  This method is used by Scrapy to create your spiders.
         s = cls()
         crawler.signals.connect(s.spider_opened, signal=signals.spider_opened)
         return s
@@ -49,18 +44,24 @@ class MasterthesisSpiderMiddleware:
         # similarly to the process_spider_output() method, except
         # that it doesn’t have a response associated.
 
-        # Must return only requests (not items).
-        for r in start_requests:
+        # Must return only requests (not items).        for r in start_requests:
             yield r
 
     def spider_opened(self, spider):
-        spider.logger.info("Spider opened: %s" % spider.name)
+        spider.logger.info("Spider geöffnet: %s" % spider.name)
 
 
 class MasterthesisDownloaderMiddleware:
     # Not all methods need to be defined. If a method is not defined,
     # scrapy acts as if the downloader middleware does not modify the
     # passed objects.
+
+    def __init__(self):
+        # Lade die Benutzer-Agenten aus der CSV-Datei
+        file_path = r'C:\Users\karde\PycharmProjects\pythonProject\masterthesis\user-agents.csv'
+        #
+        self.user_agents = pd.read_csv(file_path)
+        self.user_agents = self.user_agents['useragent'].tolist()
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -79,8 +80,13 @@ class MasterthesisDownloaderMiddleware:
         # - or return a Request object
         # - or raise IgnoreRequest: process_exception() methods of
         #   installed downloader middleware will be called
-        #request.meta['proxy'] = "http://220226e5d4b7f18dcc1ab9672024bafb97c6dd7a:premium_proxy=true@proxy.zenrows.com:8001"
-        return None
+        # request.meta['proxy'] = "http://220226e5d4b7f18dcc1ab9672024bafb97c6dd7a:premium_proxy=true@proxy.zenrows.com:8001"
+        #return None
+        # Wähle einen zufälligen Benutzer-Agenten aus der Liste aus
+        #request.headers['User-Agent'] = random.choice(self.user_agents)
+        user_agent = random.choice(self.user_agents)
+        request.headers['User-Agent'] = user_agent
+        spider.logger.info(f'Using User-Agent: {user_agent}')
 
     def process_response(self, request, response, spider):
         # Called with the response returned from the downloader.
@@ -103,4 +109,3 @@ class MasterthesisDownloaderMiddleware:
 
     def spider_opened(self, spider):
         spider.logger.info("Spider opened: %s" % spider.name)
-
