@@ -17,8 +17,8 @@ client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
 collection = db['raw_articles4']
 processed_collection = db['processed_articlesDelete']
-vocabulary_collection = db['vocabularydelete']
-daily_summary_collection = db['daily_summarydelete']
+vocabulary_collection = db['vocabulary']
+daily_summary_collection = db['daily_summary2']
 
 # Neue Sammlung, um den Fortschritt zu speichern
 progress_collection = db['process_progress']
@@ -47,8 +47,6 @@ def read_reference_file(file_path):
         reference_words = [line.strip().lower() for line in f]
     return reference_words
 
-
-import re
 
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
@@ -112,42 +110,68 @@ def compare_phrases_with_reference(new_phrases, reference_words):
     return updated_new_phrases
 
 # Aktualisiert das Vokabular, um sowohl Wörter als auch Phrasen zu speichern
-def update_vocabulary(phrase, current_date):
+def update_vocabulary(phrase, current_date, source):
+    """
+    Aktualisiert das Vokabular, um sowohl Wörter als auch Phrasen zu speichern.
+    'source' gibt an, ob die Phrase aus einem Artikel oder einem Kommentar stammt.
+    """
     existing_phrase = vocabulary_collection.find_one({'word': phrase})
 
+    # Bestimme das Feld basierend auf der Quelle (Artikel oder Kommentar)
+    if source == 'article':
+        field = 'article_occurrences'
+    else:
+        field = 'comment_occurrences'
+
     if existing_phrase:
+        # Wenn das Wort bereits existiert, aktualisiere das Vorkommen
         vocabulary_collection.update_one(
             {'word': phrase},
             {
-                '$inc': {'occurrences': 1},
+                '$inc': {field: 1},  # Inkrementiere die Häufigkeit im richtigen Feld
                 '$set': {'last_seen': current_date}
             }
         )
     else:
+        # Wenn das Wort noch nicht existiert, füge es neu hinzu
         vocabulary_collection.insert_one({
             'word': phrase,
             'first_seen': current_date,
             'last_seen': current_date,
-            'occurrences': 1
+            'article_occurrences': 1 if source == 'article' else 0,
+            'comment_occurrences': 1 if source == 'comment' else 0
         })
 
 
 # Speichert die tägliche Zusammenfassung
-def save_daily_summary(new_words, current_date):
+# Speichert die tägliche Zusammenfassung
+def save_daily_summary(new_article_phrases, new_comment_phrases, current_date):
     # Berechne die Häufigkeit der neuen Wörter für den Tag
-    word_frequencies = {}
-    for word_data in new_words:
-        word = word_data['word']
-        if word in word_frequencies:
-            word_frequencies[word] += 1
+    article_word_frequencies = {}
+    comment_word_frequencies = {}
+
+    # Zähle die Häufigkeit der Wörter in Artikeln
+    for word in new_article_phrases:
+        if word in article_word_frequencies:
+            article_word_frequencies[word] += 1
         else:
-            word_frequencies[word] = 1
+            article_word_frequencies[word] = 1
+
+    # Zähle die Häufigkeit der Wörter in Kommentaren
+    for word in new_comment_phrases:
+        if word in comment_word_frequencies:
+            comment_word_frequencies[word] += 1
+        else:
+            comment_word_frequencies[word] = 1
 
     # Speichere die tägliche Zusammenfassung
     daily_summary_collection.insert_one({
         'date': current_date,
-        'new_words': [{'word': word, 'frequency': freq} for word, freq in word_frequencies.items()]
+        'article_word_frequencies': article_word_frequencies,
+        'comment_word_frequencies': comment_word_frequencies
     })
+
+
 
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
@@ -164,8 +188,8 @@ def process_articles():
     reference_words = read_reference_file(reference_file_path)
     current_date = datetime.now().strftime('%Y-%m-%d')
 
-    all_new_phrases = []
-    skipped_articles = 0
+    all_new_article_phrases = []
+    all_new_comment_phrases = []
     processed_articles = 0
 
     # Hole die zuletzt verarbeitete ID
@@ -219,18 +243,28 @@ def process_articles():
                     new_article_phrases = compare_phrases_with_reference(new_article_phrases, reference_words)
                     new_comment_phrases = compare_phrases_with_reference(new_comment_phrases, reference_words)
 
-                    # Keine neuen Phrasen, Artikel überspringen
+                    # Falls keine neuen Phrasen vorhanden sind, Artikel trotzdem speichern
                     if not new_article_phrases and not new_comment_phrases:
                         logging.info(f"Keine neuen Wörter oder Phrasen in Artikel {article['url']}.")
+                        processed_collection.insert_one({
+                            'title': article['title'],
+                            'url': article['url'],
+                            'full_text': full_text,
+                            'ranked_keywords': [],  # Keine neuen Phrasen
+                            'new_article_phrases': [],  # Keine neuen Phrasen
+                            'new_comment_phrases': [],  # Keine neuen Phrasen
+                            'first_processed': current_date,
+                            'last_processed': current_date
+                        })
                         continue
 
                     # Aktualisiere das Vokabular für neue Phrasen im Artikeltext
                     for phrase in new_article_phrases:
-                        update_vocabulary(phrase, current_date)
+                        update_vocabulary(phrase, current_date, 'article')  # Speichere als Artikelphrase
 
                     # Aktualisiere das Vokabular für neue Phrasen in den Kommentaren (falls vorhanden)
                     for phrase in new_comment_phrases:
-                        update_vocabulary(phrase, current_date)
+                        update_vocabulary(phrase, current_date, 'comment')  # Speichere als Kommentarphrase
 
                     # Berechne TF-IDF (optional, falls benötigt)
                     try:
@@ -245,6 +279,9 @@ def process_articles():
                     except Exception as e:
                         logging.error(f"Fehler beim Berechnen der TF-IDF für Artikel {article['url']}: {e}")
                         continue
+
+                    all_new_article_phrases.extend(new_article_phrases)
+                    all_new_comment_phrases.extend(new_comment_phrases)
 
                     # Speichere die neuen Phrasen und Kommentare in der Datenbank
                     processed_collection.insert_one({
@@ -264,8 +301,6 @@ def process_articles():
                     # Speichere den Fortschritt nach jedem Artikel
                     save_progress(article['_id'])
 
-                    all_new_phrases.extend(new_article_phrases + new_comment_phrases)
-
             except errors.CursorNotFound as e:
                 logging.error(f"CursorNotFound-Fehler: {e}")
                 process_articles()  # Rekursiver Neustart
@@ -276,7 +311,8 @@ def process_articles():
     except Exception as e:
         logging.error(f"Fehler beim Starten der MongoDB-Sitzung: {e}")
 
-    save_daily_summary(all_new_phrases, current_date)
+    save_daily_summary(all_new_article_phrases, all_new_comment_phrases, current_date)
+
 
 
 
