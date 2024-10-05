@@ -8,12 +8,12 @@ import time
 import logging
 
 # Logging konfigurieren
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['raw_compact']
+collection = db['sezession0510raw']
 
 
 # Prüft, ob eine Sitemap vorhanden ist, und sucht nach Sitemaps wie 'post-sitemap' oder 'sitemap.xml'
@@ -194,60 +194,6 @@ def get_article_content_with_selenium(article_url):
     finally:
         # Beende den Selenium WebDriver
         driver.quit()
-
-
-
-# Funktion zur Extraktion von Titel, Text und Kommentaren aus HTML
-def extract_content_from_html(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
-
-    # Extrahiere den Titel
-    title = soup.find('title') or soup.find('h1') or soup.find('meta', property='og:title')
-    title_text = title.get_text(strip=True) if title else "Kein Titel"
-
-    # Zuerst alle Kommentare extrahieren
-    comments = []
-    possible_comment_sections = soup.find_all(['div', 'section', 'article'],
-                                              class_=lambda x: x and 'comment' in x.lower())
-
-    for section in possible_comment_sections:
-        comment_paragraphs = section.find_all('p')
-        for p in comment_paragraphs:
-            comment_text = p.get_text(separator=' ', strip=True)
-            if comment_text:
-                comments.append(html.unescape(comment_text))
-
-        # Entferne den Kommentarbereich aus dem HTML, um doppelte Einträge zu vermeiden
-        section.decompose()
-
-    # Extrahiere den Text aus dem bereinigten HTML (nach dem Entfernen der Kommentare)
-    article = soup.find('article') or soup.find('div', class_="postcontent") or soup.find('div', class_="singlepost")
-
-    if article:
-        paragraphs = article.find_all('p')
-        list_items = article.find_all('li')
-    else:
-        # Fallback, wenn kein spezifischer Container gefunden wird
-        paragraphs = soup.find_all('p')
-        list_items = soup.find_all('li')
-
-    # Falls keine spezifischen Container vorhanden sind, durchsuche auch 'div' und 'section' nach Inhalt
-    if not paragraphs and not list_items:
-        content_sections = soup.find_all(['div', 'section'])
-        for section in content_sections:
-            paragraphs.extend(section.find_all('p'))
-            list_items.extend(section.find_all('li'))
-
-    # Füge den gesamten Text zusammen, aus Paragraphen und Listen
-    full_text = ' '.join(html.unescape(tag.get_text(separator=' ', strip=True)) for tag in paragraphs + list_items)
-    full_text = full_text.replace('\u00AD', '').replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-    full_text = ' '.join(full_text.split())
-
-    return {
-        "title": title_text,
-        "full_text": full_text,
-        "comments": comments
-    }
 
 
 # Funktion zum Scrapen des Artikels und zum Speichern in der Datenbank

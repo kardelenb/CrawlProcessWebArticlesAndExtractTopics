@@ -1,4 +1,6 @@
 import spacy
+from germanetpy import germanet
+from germanetpy.filterconfig import Filterconfig
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords, wordnet
 import nltk
@@ -15,13 +17,13 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['raw_articles4']
-processed_collection = db['processed_articlesDelete']
-vocabulary_collection = db['vocabulary']
-daily_summary_collection = db['daily_summary2']
+collection = db['rechterand0510raw']
+processed_collection = db['testprocessed']
+vocabulary_collection = db['testvocabulary']
+daily_summary_collection = db['test_daily']
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['process_progress']
+progress_collection = db['testprocess_progress']
 
 processed_collection.create_index('url')
 
@@ -34,7 +36,8 @@ nltk.download('wordnet')
 
 german_stop_words = set(stopwords.words('german'))
 english_stop_words = set(stopwords.words('english'))
-
+# Lade GermaNet-Daten
+germanet_object = germanet.Germanet("/home/kardelenbilir/Downloads/GN_V180/GN_V180_XML")
 # Bestimme das aktuelle Verzeichnis, in dem das Skript ausgeführt wird
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -47,6 +50,14 @@ def read_reference_file(file_path):
         reference_words = [line.strip().lower() for line in f]
     return reference_words
 
+
+# Funktion, um zu prüfen, ob ein Wort in GermaNet ist, unabhängig von Groß-/Kleinschreibung
+def check_word_in_germanet_ignore_case(word):
+    # Erstelle eine Filterkonfiguration und ignoriere Groß- und Kleinschreibung
+    filterconfig = Filterconfig(word, ignore_case=True)
+    synsets = filterconfig.filter_synsets(germanet_object)
+
+    return len(synsets) > 0
 
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
@@ -100,17 +111,23 @@ def detect_language(text):
 
 # Vergleicht die extrahierten Wörter mit der Referenzdatei
 # Funktion zum Vergleich der extrahierten Phrasen/Wörter mit dem Wörterbuch
+# Vergleicht die extrahierten Wörter mit der Referenzdatei und GermaNet
 def compare_phrases_with_reference(new_phrases, reference_words):
     reference_set = set(reference_words)
     updated_new_phrases = []
+
     for phrase in new_phrases:
         words_in_phrase = phrase.lower().split()  # Zerlege die Phrase in einzelne Wörter und prüfe jedes Wort
         if not all(word in reference_set for word in words_in_phrase):
-            updated_new_phrases.append(phrase)
+            # Prüfe, ob das Wort in GermaNet ist (case-insensitive)
+            if not check_word_in_germanet_ignore_case(phrase):
+                updated_new_phrases.append(
+                    phrase)  # Nur hinzufügen, wenn es nicht in der Referenzdatei und nicht in GermaNet ist
+
     return updated_new_phrases
 
 # Aktualisiert das Vokabular, um sowohl Wörter als auch Phrasen zu speichern
-def update_vocabulary(phrase, current_date, source):
+def update_vocabulary(phrase, current_date, source, all_vocabulary_today):
     """
     Aktualisiert das Vokabular, um sowohl Wörter als auch Phrasen zu speichern.
     'source' gibt an, ob die Phrase aus einem Artikel oder einem Kommentar stammt.
@@ -132,6 +149,7 @@ def update_vocabulary(phrase, current_date, source):
                 '$set': {'last_seen': current_date}
             }
         )
+        all_vocabulary_today['existing_phrases'].add(phrase)
     else:
         # Wenn das Wort noch nicht existiert, füge es neu hinzu
         vocabulary_collection.insert_one({
@@ -141,6 +159,7 @@ def update_vocabulary(phrase, current_date, source):
             'article_occurrences': 1 if source == 'article' else 0,
             'comment_occurrences': 1 if source == 'comment' else 0
         })
+        all_vocabulary_today['new_phrases'].add(phrase)
 
 
 # Speichert die tägliche Zusammenfassung
@@ -164,12 +183,31 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, current_date):
         else:
             comment_word_frequencies[word] = 1
 
-    # Speichere die tägliche Zusammenfassung
-    daily_summary_collection.insert_one({
-        'date': current_date,
-        'article_word_frequencies': article_word_frequencies,
-        'comment_word_frequencies': comment_word_frequencies
-    })
+        # Liste der bisher gesehenen Wörter (gesamtes Vokabular)
+        all_seen_words = set(vocabulary_collection.distinct('word'))
+
+        # Unterscheide zwischen neuen und bereits gesehenen Wörtern
+        new_words_today = [word for word in new_article_phrases + new_comment_phrases if word not in all_seen_words]
+        repeated_words_today = [word for word in new_article_phrases + new_comment_phrases if word in all_seen_words]
+
+        # Speichere die tägliche Zusammenfassung, inklusive neuer und wiederholter Wörter
+        daily_summary_collection.insert_one({
+            'date': current_date,
+            'article_word_frequencies': article_word_frequencies,
+            'comment_word_frequencies': comment_word_frequencies,
+            'new_words_today': new_words_today,
+            'repeated_words_today': repeated_words_today,
+            'new_word_count': len(new_words_today),
+            'repeated_word_count': len(repeated_words_today)
+        })
+        # Füge dies hinzu: Speichere das Vokabelwachstum separat
+        vocabulary_growth_collection = db[
+            'vocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+        vocabulary_growth_collection.insert_one({
+            'date': current_date,
+            'new_words_count': len(new_words_today),  # Anzahl der neuen Wörter an diesem Tag
+            'repeated_words_count': len(repeated_words_today)  # Anzahl der wiederholten Wörter an diesem Tag
+        })
 
 
 
@@ -188,8 +226,10 @@ def process_articles():
     reference_words = read_reference_file(reference_file_path)
     current_date = datetime.now().strftime('%Y-%m-%d')
 
-    all_new_article_phrases = []
-    all_new_comment_phrases = []
+    all_vocabulary_today = {
+        'new_phrases': set(),  # Neue Wörter/Phrasen, die heute zum ersten Mal gesehen wurden
+        'existing_phrases': set()  # Bereits bekannte Wörter/Phrasen, die erneut aufgetreten sind
+    }
     processed_articles = 0
 
     # Hole die zuletzt verarbeitete ID
@@ -260,11 +300,11 @@ def process_articles():
 
                     # Aktualisiere das Vokabular für neue Phrasen im Artikeltext
                     for phrase in new_article_phrases:
-                        update_vocabulary(phrase, current_date, 'article')  # Speichere als Artikelphrase
+                        update_vocabulary(phrase, current_date, 'article', all_vocabulary_today)  # Speichere als Artikelphrase
 
                     # Aktualisiere das Vokabular für neue Phrasen in den Kommentaren (falls vorhanden)
                     for phrase in new_comment_phrases:
-                        update_vocabulary(phrase, current_date, 'comment')  # Speichere als Kommentarphrase
+                        update_vocabulary(phrase, current_date, 'comment', all_vocabulary_today)  # Speichere als Kommentarphrase
 
                     # Berechne TF-IDF (optional, falls benötigt)
                     try:
@@ -279,9 +319,6 @@ def process_articles():
                     except Exception as e:
                         logging.error(f"Fehler beim Berechnen der TF-IDF für Artikel {article['url']}: {e}")
                         continue
-
-                    all_new_article_phrases.extend(new_article_phrases)
-                    all_new_comment_phrases.extend(new_comment_phrases)
 
                     # Speichere die neuen Phrasen und Kommentare in der Datenbank
                     processed_collection.insert_one({
@@ -311,7 +348,7 @@ def process_articles():
     except Exception as e:
         logging.error(f"Fehler beim Starten der MongoDB-Sitzung: {e}")
 
-    save_daily_summary(all_new_article_phrases, all_new_comment_phrases, current_date)
+    save_daily_summary(list(all_vocabulary_today['new_phrases']), list(all_vocabulary_today['existing_phrases']), current_date)
 
 
 
