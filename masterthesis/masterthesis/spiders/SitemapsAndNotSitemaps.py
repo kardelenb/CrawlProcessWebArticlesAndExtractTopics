@@ -8,12 +8,25 @@ import time
 import logging
 
 # Logging konfigurieren
-logging.basicConfig(level=logging.ERROR, format='%(asctime=s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['rechterand0510raw']
+collection = db['test']
+
+# Lädt alle bereits verarbeiteten URLs aus der MongoDB in ein Set
+def load_processed_urls(base_url):
+    # Lade nur die URLs, die zur aktuellen Seite gehören (basierend auf der base_url)
+    return set(doc['url'] for doc in collection.find({'url': {'$regex': f'^{base_url}'}}, {'url': 1}))
+
+
+# Funktion zum Abrufen von bereits gespeicherten Kommentaren für eine URL
+def get_stored_comments(url):
+    article = collection.find_one({'url': url}, {'comments': 1})
+    if article:
+        return set(article.get('comments', []))
+    return set()
 
 # Prüft, ob eine Sitemap vorhanden ist, und sucht nach Sitemaps wie 'post-sitemap' oder 'sitemap.xml'
 def get_all_sitemap_links(base_url):
@@ -124,7 +137,7 @@ def get_article_links_from_page_with_selenium(base_url):
         driver.quit()
 
 
-# Gemeinsame Funktion zur Extraktion von Titel, Text und Kommentaren aus HTML
+# Funktion zur Extraktion von Titel, Text und Kommentaren aus HTML für die Webseiten mit Sitemaps
 def extract_content_from_html(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -237,19 +250,17 @@ def get_article_content_with_selenium(article_url):
 
 
 # Funktion zur Überprüfung und Auswahl der passenden Methode
-def scrape_article(url, sitemap_based=True):
+def scrape_article(url, processed_urls, sitemap_based=True):
     try:
-        if collection.find_one({'url': url}):
-            logging.info(f"Artikel bereits vorhanden: {url}")
-            return
+        # Überprüfe, ob der Artikel bereits gespeichert wurde
+        article_exists = url in processed_urls
+        stored_comments = get_stored_comments(url) if article_exists else set()
 
         if sitemap_based:
-            # Sitemap-basierte Extraktion
             response = requests.get(url)
             response.raise_for_status()
             content = extract_content_from_html(response.content)
         else:
-            # Selenium-basierte Extraktion
             content = get_article_content_with_selenium(url)
 
         if content:
@@ -257,21 +268,29 @@ def scrape_article(url, sitemap_based=True):
             full_text = content['full_text']
             comments = content['comments']
 
-            logging.info(f"Extrahierter Titel: {title_text}")
-            logging.info(f"Anzahl der Kommentare: {len(comments)}")
-            if not full_text.strip():
-                logging.warning(f"Kein Text extrahiert für URL: {url}")
-            else:
-                logging.info(f"Extrahierter Text: {full_text[:500]}...")
+            # Neue Kommentare identifizieren
+            new_comments = [comment for comment in comments if comment not in stored_comments]
 
-            collection.insert_one({
-                'title': title_text,
-                'url': url,
-                'full_text': full_text,
-                'comments': comments
-            })
+            if new_comments:
+                # Wenn es neue Kommentare gibt, aktualisieren wir nur die Kommentare
+                collection.update_one(
+                    {'url': url},
+                    {'$addToSet': {'comments': {'$each': new_comments}}},
+                )
+                logging.info(f"Artikel aktualisiert: {url}, neue Kommentare: {len(new_comments)}")
 
-            logging.info(f"Artikel erfolgreich gespeichert: {url}")
+            if not article_exists:
+                # Wenn der Artikel noch nicht existiert, speichern wir den gesamten Artikel
+                collection.insert_one({
+                    'title': title_text,
+                    'url': url,
+                    'full_text': full_text,
+                    'comments': comments
+                })
+                logging.info(f"Artikel erfolgreich gespeichert: {url}")
+
+            # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert wurde
+            processed_urls.add(url)
 
     except requests.RequestException as e:
         logging.error(f"Artikel konnte nicht gescraped werden: {url} aufgrund von {str(e)}")
@@ -279,6 +298,9 @@ def scrape_article(url, sitemap_based=True):
 # Hauptfunktion zum Finden und Scrapen von Artikeln
 def main():
     base_url = input("Gib die Basis-URL der Webseite ein (z.B. https://example.com): ").strip()
+
+    # Lade die bereits verarbeiteten URLs
+    processed_urls = load_processed_urls(base_url)
 
     # Prüfe, ob die Webseite eine Sitemap hat
     sitemap_links = get_all_sitemap_links(base_url)
@@ -289,9 +311,10 @@ def main():
         for sitemap_url in sitemap_links:
             all_urls.extend(get_urls_from_sitemap(sitemap_url))
 
+        new_urls = [url for url in all_urls if url not in processed_urls]
         # Scrape die Artikel von URLs, die aus der Sitemap extrahiert wurden
-        for url in all_urls:
-            scrape_article(url, sitemap_based=True)
+        for url in new_urls:
+            scrape_article(url, processed_urls, sitemap_based=True)
             time.sleep(1)
     else:
         logging.info("Verarbeite Artikel direkt von der Seite ohne Sitemap.")
@@ -301,9 +324,10 @@ def main():
             logging.error(f"Keine Artikel-URLs gefunden für: {base_url}")
             return
 
+        new_urls = [url for url in all_urls if url not in processed_urls]
         # Scrape die Artikel direkt von der Seite ohne Sitemap
-        for url in all_urls:
-            scrape_article(url, sitemap_based=False)
+        for url in new_urls:
+            scrape_article(url, processed_urls, sitemap_based=False)
             time.sleep(1)
 
 if __name__ == '__main__':
