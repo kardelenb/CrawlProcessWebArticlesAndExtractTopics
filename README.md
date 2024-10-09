@@ -54,5 +54,5 @@ Dieses Projekt besteht aus zwei Hauptteilen:
 ### Verwendung
 1. Starte das Skript zur Textanalyse:
    ```bash
-   python process_articles.py
+   python processor.py
 2. Das Skript vergleicht die extrahierten Phrasen aus den Artikeln mit dem Wörterbuch und speichert die Ergebnisse in MongoDB.
