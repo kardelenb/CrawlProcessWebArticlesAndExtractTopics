@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['raw_articles4']
+collection = db['raw_articles5']
 
 # Liste der Sitemap-URLs, die gecrawlt werden sollen
 sitemap_urls = [

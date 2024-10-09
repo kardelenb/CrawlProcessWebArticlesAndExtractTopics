@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from pymongo import MongoClient
+from urllib.parse import urlparse
+from urllib.parse import urljoin
 import html
 import time
 import logging
@@ -13,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['test']
+collection = db['luxemburg_raw']
 
 # Lädt alle bereits verarbeiteten URLs aus der MongoDB in ein Set
 def load_processed_urls(base_url):
@@ -81,62 +83,6 @@ def get_urls_from_sitemap(sitemap_url):
         logging.error(f"Sitemap konnte nicht abgerufen werden: {sitemap_url} aufgrund von {e}")
         return []
 
-# Funktion zum Abrufen von Artikel-Links auf einer Seite mit Selenium
-def get_article_links_from_page_with_selenium(base_url):
-    # Selenium WebDriver einrichten
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')  # Headless-Modus für das unsichtbare Browsen
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-
-    driver = webdriver.Chrome(options=chrome_options)
-
-    try:
-        # Lade die Webseite mit Selenium
-        driver.get(base_url)
-        time.sleep(3)  # Warte, bis die Seite vollständig geladen ist
-
-        # Extrahiere den Seitenquellcode
-        page_source = driver.page_source
-        soup = BeautifulSoup(page_source, 'html.parser')
-
-        # Suche nach <article>-Tags, aber auch nach <div> oder <section> mit typischen Klassen für Artikel
-        articles = soup.find_all(['article', 'div', 'section'], class_=lambda x: x and 'post' in x.lower())
-
-        links = []
-        # Durchsuche jedes gefundene Element nach Links
-        for article in articles:
-            link = article.find('a', href=True)
-            if link:
-                href = link['href']
-                if href.startswith('/'):
-                    # Baue den vollständigen URL aus relativen Links
-                    full_url = requests.compat.urljoin(base_url, href)
-                    links.append(full_url)
-                elif href.startswith('http'):
-                    # Falls der Link absolut ist, direkt hinzufügen
-                    links.append(href)
-
-        # Zusätzlich alle Links auf der Seite durchsuchen, falls Artikel-Tags nicht erfolgreich sind
-        if not links:
-            logging.info("Keine spezifischen Artikel-Container gefunden. Suche nach allgemeinen Links.")
-            all_links = soup.find_all('a', href=True)
-            for link in all_links:
-                href = link['href']
-                if href.startswith('/') or href.startswith('http'):
-                    full_url = requests.compat.urljoin(base_url, href)
-                    links.append(full_url)
-
-        return list(set(links))  # Duplikate entfernen
-    except Exception as e:
-        logging.error(f"Fehler beim Abrufen der Seite mit Selenium: {base_url} - {e}")
-        return []
-    finally:
-        # Beende den Selenium WebDriver
-        driver.quit()
-
-
 # Funktion zur Extraktion von Titel, Text und Kommentaren aus HTML für die Webseiten mit Sitemaps
 def extract_content_from_html(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -182,8 +128,9 @@ def extract_content_from_html(html_content):
         "comments": comments
     }
 
-# Funktion zur Extraktion von Inhalten mit Selenium für Webseiten ohne Sitemaps
-def get_article_content_with_selenium(article_url):
+# Funktion zum Abrufen von Artikel-Links auf einer Seite mit Selenium
+def get_article_links_from_page_with_selenium(base_url):
+    # Selenium WebDriver einrichten
     chrome_options = Options()
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--disable-gpu')
@@ -193,61 +140,129 @@ def get_article_content_with_selenium(article_url):
     driver = webdriver.Chrome(options=chrome_options)
 
     try:
-        # Lade die Webseite mit Selenium
-        driver.get(article_url)
+        driver.get(base_url)
         time.sleep(3)  # Warte, bis die Seite vollständig geladen ist
 
         # Extrahiere den Seitenquellcode
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, 'html.parser')
 
-        # Suche nach möglichen Containern mit Text, z.B. <div>, <article>, <section>
-        possible_text_containers = soup.find_all(['div', 'article', 'section'])
+        # Extrahiere die Domain der Basis-URL
+        base_domain = urlparse(base_url).netloc
 
-        full_text = ""
+        # Suche nach Links auf der Seite
+        links = []
+        for a_tag in soup.find_all('a', href=True):
+            href = a_tag['href']
 
-        for container in possible_text_containers:
-            paragraphs = container.find_all('p')
-            container_text = ' '.join(html.unescape(p.get_text(separator=' ', strip=True)) for p in paragraphs)
+            # Verarbeite relative Links (beginnen mit '/')
+            if href.startswith('/'):
+                full_url = urljoin(base_url, href)  # Wandelt relative in absolute URLs um
+                links.append(full_url)
 
-            # Nur relevanten Text hinzufügen (z.B. Textlänge über 100 Zeichen)
-            if len(container_text) > 100:
-                full_text += container_text + " "
+            # Verarbeite Protokoll-relative Links (beginnen mit '//')
+            elif href.startswith('//'):
+                full_url = urljoin(base_url, href)
+                links.append(full_url)
 
-        # Bereinigen des gesamten extrahierten Textes
-        full_text = full_text.replace('\u00AD', '').replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-        full_text = ' '.join(full_text.split())  # Zusätzliche Whitespace entfernen
+            # Verarbeite absolute URLs
+            elif href.startswith('http'):
+                links.append(href)
+
+        return list(set(links))  # Entferne Duplikate
+
+    except Exception as e:
+        logging.error(f"Fehler beim Abrufen der Seite mit Selenium: {base_url} - {e}")
+        return []
+
+    finally:
+        driver.quit()
+# Prüft, ob der Link zu einem Artikel führt
+def is_article_link(url, base_url):
+    # Wir verwenden hier einfach die Prüfung, ob die URL zur Basisdomain gehört
+    base_domain = urlparse(base_url).netloc
+    link_domain = urlparse(url).netloc
+    return base_domain == link_domain
+
+# Funktion zur Extraktion von Artikelinhalten mit Selenium
+def extract_article_content_with_selenium(article_url):
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+
+    driver = webdriver.Chrome(options=chrome_options)
+
+    try:
+        driver.get(article_url)
+        time.sleep(3)
+
+        # Extrahiere den Seitenquellcode
+        page_source = driver.page_source
+        soup = BeautifulSoup(page_source, 'html.parser')
 
         # Extrahiere den Titel
-        title = soup.find('title') or soup.find('h1') or soup.find('meta', property='og:title')
-        title_text = title.get_text(strip=True) if title else "Kein Titel"
+        title_tag = soup.find('title') or soup.find('h1')
+        title = title_tag.get_text(strip=True) if title_tag else "Kein Titel"
 
-        # Extrahiere Kommentare, falls vorhanden
-        comments = []
-        possible_comment_sections = soup.find_all(['div', 'section', 'article'],
-                                                  class_=lambda x: x and 'comment' in x.lower())
-        for section in possible_comment_sections:
-            comment_paragraphs = section.find_all('p')
-            for p in comment_paragraphs:
-                comment_text = p.get_text(separator=' ', strip=True)
-                if comment_text:
-                    comments.append(html.unescape(comment_text))
+        # Extrahiere den Text aus <p>, <li>, <h2>, <h3>, <div> und ähnlichen relevanten Tags
+        text_elements = soup.find_all(['p', 'li'])
+        full_text = ' '.join(element.get_text(separator=' ', strip=True) for element in text_elements)
 
-            # Entferne den Kommentarbereich aus dem HTML, um doppelte Einträge zu vermeiden
-            section.decompose()
+        # Bereinige den Text von überflüssigen Leerzeichen
+        full_text = ' '.join(full_text.split())
 
         return {
-            "title": title_text,
-            "full_text": full_text,
-            "comments": comments
+            'title': title,
+            'full_text': full_text
         }
-
     except Exception as e:
         logging.error(f"Fehler beim Abrufen des Artikels mit Selenium: {article_url} - {e}")
         return None
     finally:
         driver.quit()
+# Funktion zur Rekursion und zum Crawlen der Webseite
+def crawl_website_with_selenium(base_url, visited_urls, processed_urls, max_depth=3):
+    if max_depth == 0:
+        return
 
+    # Artikel-Links von der Seite holen
+    all_links = get_article_links_from_page_with_selenium(base_url)
+
+    for link in all_links:
+        # Überspringe bereits besuchte Seiten oder Links, die nicht zur Basis-URL gehören
+        if link in visited_urls or link in processed_urls or not is_article_link(link, base_url):
+            continue
+
+        visited_urls.add(link)
+
+        # Prüfen, ob der Link zu einem Artikel führt
+        if is_article_link(link, base_url):
+            logging.info(f"Artikel gefunden: {link}")
+            article_content = extract_article_content_with_selenium(link)
+            if article_content:
+                logging.info(f"Titel: {article_content['title']}")
+                logging.info(f"Text: {article_content['full_text'][:1800]}...")  # Ausgabe der ersten 1800 Zeichen
+
+                # Füge die URL zu processed_urls hinzu
+                processed_urls.add(link)
+
+                # Speichere den Artikel in der Datenbank
+                collection.insert_one({
+                    'title': article_content['title'],
+                    'url': link,
+                    'full_text': article_content['full_text'],
+                    'comments': []  # Hier können Kommentare eingefügt werden, falls vorhanden
+                })
+
+        # Falls es keine Artikel-Seite ist, rekursiv weiter crawlen
+        else:
+            logging.info(f"Crawlen der Seite: {link}")
+            crawl_website_with_selenium(link, visited_urls, processed_urls, max_depth - 1)
+
+        # Wartezeit zwischen den Anfragen, um die Webseite nicht zu überlasten
+        time.sleep(1)
 
 # Funktion zur Überprüfung und Auswahl der passenden Methode
 def scrape_article(url, processed_urls, sitemap_based=True):
@@ -261,7 +276,7 @@ def scrape_article(url, processed_urls, sitemap_based=True):
             response.raise_for_status()
             content = extract_content_from_html(response.content)
         else:
-            content = get_article_content_with_selenium(url)
+            content = extract_article_content_with_selenium(url)
 
         if content:
             title_text = content['title']
@@ -318,17 +333,8 @@ def main():
             time.sleep(1)
     else:
         logging.info("Verarbeite Artikel direkt von der Seite ohne Sitemap.")
-        all_urls = get_article_links_from_page_with_selenium(base_url)
-
-        if not all_urls:
-            logging.error(f"Keine Artikel-URLs gefunden für: {base_url}")
-            return
-
-        new_urls = [url for url in all_urls if url not in processed_urls]
-        # Scrape die Artikel direkt von der Seite ohne Sitemap
-        for url in new_urls:
-            scrape_article(url, processed_urls, sitemap_based=False)
-            time.sleep(1)
+        visited_urls = set()
+        crawl_website_with_selenium(base_url, visited_urls, processed_urls, max_depth=3)
 
 if __name__ == '__main__':
     main()
