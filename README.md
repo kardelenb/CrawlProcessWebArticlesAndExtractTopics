@@ -41,13 +41,13 @@ bash
 
 Teil 2: Textanalyse
 Funktionsweise
--Dieses Skript lädt Artikel und Kommentare aus der MongoDB.
--Es analysiert den Text, extrahiert relevante Phrasen (basierend auf POS-Tags) und vergleicht diese mit einem vorgegebenen Wörterbuch.
--Neue Wörter oder Phrasen werden erkannt und in einer MongoDB-Datenbank gespeichert.
+- Dieses Skript lädt Artikel und Kommentare aus der MongoDB.
+- Es analysiert den Text, extrahiert relevante Phrasen (basierend auf POS-Tags) und vergleicht diese mit einem vorgegebenen Wörterbuch.
+- Neue Wörter oder Phrasen werden erkannt und in einer MongoDB-Datenbank gespeichert.
 
 Voraussetzungen
--Die in Teil 1 gesammelten Daten müssen in MongoDB verfügbar sein.
--Ein Wörterbuch zum Vergleich der Phrasen muss im Projektverzeichnis als output3.txt gespeichert sein.
+- Die in Teil 1 gesammelten Daten müssen in MongoDB verfügbar sein.
+- Ein Wörterbuch zum Vergleich der Phrasen muss im Projektverzeichnis als output3.txt gespeichert sein.
 
 Verwendung
 1. Starte das Skript zur Textanalyse:
