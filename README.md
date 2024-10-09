@@ -23,3 +23,9 @@ Dieses Projekt besteht aus zwei Hauptteilen:
 1. Klone dieses Repository:
    ```bash
    git clone https://github.com/kardelenb/MasterArbeit.git
+2.Navigiere in das Projektverzeichnis:
+cd dein_repository
+
+3. Installiere die Abhängigkeiten:
+pip install -r requirements.txt
+Stelle sicher, dass MongoDB läuft und du eine Verbindung zur Datenbank hast.
