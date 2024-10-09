@@ -29,15 +29,15 @@ Dieses Projekt besteht aus zwei Hauptteilen:
   ```pip install -r requirements.txt```
 
 4. Stelle sicher, dass MongoDB läuft und du eine Verbindung zur Datenbank hast.
-5. 
+   
 ### Verwendung
 1. Starte das Skript justSitemaps.py:
-
 bash
 ```python justSitemaps.py```
-2. Gib die Basis-URL der Website ein, von der du Artikel und Kommentare extrahieren möchtest (die Website muss eine Sitemap haben).
 
-3. Der Scraper durchsucht die Sitemap der Website, extrahiert die URLs, lädt den Inhalt und speichert die Daten in MongoDB.
+3. Gib die Basis-URL der Website ein, von der du Artikel und Kommentare extrahieren möchtest (die Website muss eine Sitemap haben).
+
+4. Der Scraper durchsucht die Sitemap der Website, extrahiert die URLs, lädt den Inhalt und speichert die Daten in MongoDB.
 
 ## Teil 2: Textanalyse
 ### Funktionsweise
