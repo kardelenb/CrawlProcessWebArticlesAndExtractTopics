@@ -30,7 +30,7 @@ Dieses Projekt besteht aus zwei Hauptteilen:
 
 4. Stelle sicher, dass MongoDB läuft und du eine Verbindung zur Datenbank hast.
 5. 
-Verwendung
+### Verwendung
 1. Starte das Skript justSitemaps.py:
 
 bash
@@ -39,17 +39,17 @@ bash
 
 3. Der Scraper durchsucht die Sitemap der Website, extrahiert die URLs, lädt den Inhalt und speichert die Daten in MongoDB.
 
-Teil 2: Textanalyse
-Funktionsweise
+## Teil 2: Textanalyse
+### Funktionsweise
 - Dieses Skript lädt Artikel und Kommentare aus der MongoDB.
 - Es analysiert den Text, extrahiert relevante Phrasen (basierend auf POS-Tags) und vergleicht diese mit einem vorgegebenen Wörterbuch.
 - Neue Wörter oder Phrasen werden erkannt und in einer MongoDB-Datenbank gespeichert.
 
-Voraussetzungen
+### Voraussetzungen
 - Die in Teil 1 gesammelten Daten müssen in MongoDB verfügbar sein.
 - Ein Wörterbuch zum Vergleich der Phrasen muss im Projektverzeichnis als output3.txt gespeichert sein.
 
-Verwendung
+### Verwendung
 1. Starte das Skript zur Textanalyse:
 ```python process_articles.py```
 2. Das Skript vergleicht die extrahierten Phrasen aus den Artikeln mit dem Wörterbuch und speichert die Ergebnisse in MongoDB.
