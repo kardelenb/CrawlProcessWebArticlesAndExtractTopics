@@ -24,8 +24,32 @@ Dieses Projekt besteht aus zwei Hauptteilen:
    ```bash
    git clone https://github.com/kardelenb/MasterArbeit.git
 2.Navigiere in das Projektverzeichnis:
-    cd dein_repository
+    ```cd dein_repository```
 3. Installiere die Abhängigkeiten:
-   pip install -r requirements.txt
+  ```pip install -r requirements.txt```
 
 4. Stelle sicher, dass MongoDB läuft und du eine Verbindung zur Datenbank hast.
+5. 
+Verwendung
+1. Starte das Skript justSitemaps.py:
+
+bash
+```python justSitemaps.py```
+2. Gib die Basis-URL der Website ein, von der du Artikel und Kommentare extrahieren möchtest (die Website muss eine Sitemap haben).
+
+3. Der Scraper durchsucht die Sitemap der Website, extrahiert die URLs, lädt den Inhalt und speichert die Daten in MongoDB.
+
+Teil 2: Textanalyse
+Funktionsweise
+-Dieses Skript lädt Artikel und Kommentare aus der MongoDB.
+-Es analysiert den Text, extrahiert relevante Phrasen (basierend auf POS-Tags) und vergleicht diese mit einem vorgegebenen Wörterbuch.
+-Neue Wörter oder Phrasen werden erkannt und in einer MongoDB-Datenbank gespeichert.
+
+Voraussetzungen
+-Die in Teil 1 gesammelten Daten müssen in MongoDB verfügbar sein.
+-Ein Wörterbuch zum Vergleich der Phrasen muss im Projektverzeichnis als output3.txt gespeichert sein.
+
+Verwendung
+1. Starte das Skript zur Textanalyse:
+```python process_articles.py```
+2. Das Skript vergleicht die extrahierten Phrasen aus den Artikeln mit dem Wörterbuch und speichert die Ergebnisse in MongoDB.
