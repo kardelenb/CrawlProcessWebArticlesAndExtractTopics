@@ -34,8 +34,8 @@ Dieses Projekt besteht aus zwei Hauptteilen:
    
 ### Verwendung
 1. Starte das Skript justSitemaps.py:
-bash
-```python justSitemaps.py```
+   ```bash
+    python justSitemaps.py
 
 3. Gib die Basis-URL der Website ein, von der du Artikel und Kommentare extrahieren möchtest (die Website muss eine Sitemap haben).
 
@@ -53,5 +53,6 @@ bash
 
 ### Verwendung
 1. Starte das Skript zur Textanalyse:
-```python process_articles.py```
+   ```bash
+   python process_articles.py
 2. Das Skript vergleicht die extrahierten Phrasen aus den Artikeln mit dem Wörterbuch und speichert die Ergebnisse in MongoDB.
