@@ -17,13 +17,13 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['sezession0510raw']
-processed_collection = db['sezessionprocessed']
-vocabulary_collection = db['vocabularySezession']
-daily_summary_collection = db['daily_sezession']
+collection = db['Test01']
+processed_collection = db['Testprocessed']
+vocabulary_collection = db['TestVocabulary']
+daily_summary_collection = db['TestDaily']
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['Sprocess_progress']
+progress_collection = db['Tprocess_progress']
 
 processed_collection.create_index('url')
 
@@ -203,12 +203,18 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
         else:
             comment_word_frequencies[word] = 1
 
-    # Liste der bisher gesehenen Wörter (gesamtes Vokabular)
-    all_seen_words = set(vocabulary_collection.distinct('word'))
+    # Unterscheide zwischen neuen und bereits gesehenen Wörtern basierend auf "first_seen"
+    new_words_today = []
+    repeated_words_today = []
 
-    # Unterscheide zwischen neuen und bereits gesehenen Wörtern
-    new_words_today = [word for word in new_article_phrases + new_comment_phrases if word not in all_seen_words]
-    repeated_words_today = [word for word in new_article_phrases + new_comment_phrases if word in all_seen_words]
+    for word in new_article_phrases + new_comment_phrases:
+        word_entry = vocabulary_collection.find_one({'word': word})
+
+        # Wort ist neu, wenn es heute zum ersten Mal gesehen wurde
+        if word_entry and word_entry['first_seen'] == start_date:
+            new_words_today.append(word)
+        elif word_entry:
+            repeated_words_today.append(word)
 
     # Prüfe, ob es bereits einen Eintrag für das aktuelle Datum gibt
     existing_entry = daily_summary_collection.find_one({'date': start_date})
@@ -219,12 +225,16 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
             {'date': start_date},
             {
                 '$set': {
-                    'article_word_frequencies': {**existing_entry.get('article_word_frequencies', {}), **article_word_frequencies},
-                    'comment_word_frequencies': {**existing_entry.get('comment_word_frequencies', {}), **comment_word_frequencies},
+                    'article_word_frequencies': {**existing_entry.get('article_word_frequencies', {}),
+                                                 **article_word_frequencies},
+                    'comment_word_frequencies': {**existing_entry.get('comment_word_frequencies', {}),
+                                                 **comment_word_frequencies},
                     'new_words_today': list(set(existing_entry.get('new_words_today', []) + new_words_today)),
-                    'repeated_words_today': list(set(existing_entry.get('repeated_words_today', []) + repeated_words_today)),
+                    'repeated_words_today': list(
+                        set(existing_entry.get('repeated_words_today', []) + repeated_words_today)),
                     'new_word_count': len(set(existing_entry.get('new_words_today', []) + new_words_today)),
-                    'repeated_word_count': len(set(existing_entry.get('repeated_words_today', []) + repeated_words_today))
+                    'repeated_word_count': len(
+                        set(existing_entry.get('repeated_words_today', []) + repeated_words_today))
                 }
             }
         )
@@ -243,7 +253,8 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
         logging.info(f"Neue tägliche Zusammenfassung für {start_date} erstellt.")
 
     # Füge dies hinzu: Speichere das Vokabelwachstum separat
-    vocabulary_growth_collection = db['SSvocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+    vocabulary_growth_collection = db[
+        'Test_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {
@@ -355,7 +366,6 @@ def process_articles():
                             'title': article['title'],
                             'url': article['url'],
                             'full_text': full_text,
-                            'ranked_keywords': [],  # Keine neuen Phrasen
                             'new_article_phrases': [],  # Keine neuen Phrasen
                             'new_comment_phrases': [],  # Keine neuen Phrasen
                             'first_processed': start_date,
@@ -371,26 +381,11 @@ def process_articles():
                     for phrase in new_comment_phrases:
                         update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)  # Speichere als Kommentarphrase
 
-                    # Berechne TF-IDF (optional, falls benötigt)
-                    try:
-                        all_phrases = new_article_phrases + new_comment_phrases
-                        if all_phrases:
-                            vectorizer = TfidfVectorizer(lowercase=False, ngram_range=(1, 2))
-                            tfidf_matrix = vectorizer.fit_transform([' '.join(all_phrases)])
-                            tfidf_scores = zip(vectorizer.get_feature_names_out(), tfidf_matrix.toarray()[0])
-                            ranked_keywords = sorted(tfidf_scores, key=lambda x: x[1], reverse=True)
-                        else:
-                            ranked_keywords = []
-                    except Exception as e:
-                        logging.error(f"Fehler beim Berechnen der TF-IDF für Artikel {article['url']}: {e}")
-                        continue
-
                     # Speichere die neuen Phrasen und Kommentare in der Datenbank
                     processed_collection.insert_one({
                         'title': article['title'],
                         'url': article['url'],
                         'full_text': full_text,
-                        'ranked_keywords': [{'word': word, 'score': score} for word, score in ranked_keywords],
                         'new_article_phrases': new_article_phrases,  # Neue Phrasen aus dem Artikeltext
                         'new_comment_phrases': new_comment_phrases,  # Neue Phrasen aus den Kommentaren (falls vorhanden)
                         'first_processed': start_date,

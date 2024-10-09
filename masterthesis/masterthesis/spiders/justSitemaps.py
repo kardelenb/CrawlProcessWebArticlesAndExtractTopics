@@ -1,5 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
+from selenium.webdriver.chrome.options import Options
+from selenium import webdriver
 from pymongo import MongoClient
 import html
 import time
@@ -127,6 +129,58 @@ def extract_content_from_html(html_content):
         "full_text": full_text,
         "comments": comments
     }
+
+# Funktion zur Extraktion von Artikelinhalten mit Selenium
+def extract_article_content_with_selenium(article_url):
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+
+    driver = webdriver.Chrome(options=chrome_options)
+
+    try:
+        driver.get(article_url)
+        time.sleep(3)
+
+        # Extrahiere den Seitenquellcode
+        page_source = driver.page_source
+        soup = BeautifulSoup(page_source, 'html.parser')
+
+        # Extrahiere den Titel
+        title_tag = soup.find('title') or soup.find('h1')
+        title = title_tag.get_text(strip=True) if title_tag else "Kein Titel"
+
+        # Extrahiere Kommentare, falls vorhanden
+        comments = []
+        possible_comment_sections = soup.find_all(['div', 'section', 'article'],
+                                                  class_=lambda x: x and 'comment' in x.lower())
+        for section in possible_comment_sections:
+            comment_paragraphs = section.find_all('p')
+            for p in comment_paragraphs:
+                comment_text = p.get_text(separator=' ', strip=True)
+                if comment_text:
+                    comments.append(html.unescape(comment_text))
+            section.decompose()
+
+        # Extrahiere den Text aus <p>, <li>, <h2>, <h3>, <div> und ähnlichen relevanten Tags
+        text_elements = soup.find_all(['p', 'li'])
+        full_text = ' '.join(element.get_text(separator=' ', strip=True) for element in text_elements)
+
+        # Bereinige den Text von überflüssigen Leerzeichen
+        full_text = ' '.join(full_text.split())
+
+        return {
+            'title': title,
+            'full_text': full_text,
+            'comments': comments  # Füge auch Kommentare hinzu
+        }
+    except Exception as e:
+        logging.error(f"Fehler beim Abrufen des Artikels mit Selenium: {article_url} - {e}")
+        return None
+    finally:
+        driver.quit()
 # Funktion zum Scraping eines Artikels
 def scrape_article(url, processed_urls, sitemap_based=True):
     try:
@@ -134,7 +188,11 @@ def scrape_article(url, processed_urls, sitemap_based=True):
         article_exists = url in processed_urls
         stored_comments = get_stored_comments(url) if article_exists else set()
 
-        if sitemap_based:
+        # Verwende Selenium für "zeitschrift-luxemburg.de", sonst normalen Abruf
+        if "zeitschrift-luxemburg.de" in url:
+            logging.info(f"Verwende Selenium für URL: {url}")
+            content = extract_article_content_with_selenium(url)
+        else:
             response = requests.get(url)
             response.raise_for_status()
             content = extract_content_from_html(response.content)
