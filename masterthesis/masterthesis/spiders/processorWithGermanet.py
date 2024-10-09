@@ -18,17 +18,17 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
 collection = db['sezession0510raw']
-processed_collection = db['sezessionWithoutGermanetProcessed']
-vocabulary_collection = db['vocabularySezessionWithoutGN']
-daily_summary_collection = db['daily_sezessionWithoutGN']
+processed_collection = db['sezessionprocessed']
+vocabulary_collection = db['vocabularySezession']
+daily_summary_collection = db['daily_sezession']
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['S2process_progress']
+progress_collection = db['Sprocess_progress']
 
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-start_date = '2024-10-06'
+start_date = datetime.now().strftime('%Y-%m-%d')
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -58,7 +58,8 @@ nltk.download('wordnet')
 
 german_stop_words = set(stopwords.words('german'))
 english_stop_words = set(stopwords.words('english'))
-
+# Lade GermaNet-Daten
+germanet_object = germanet.Germanet("/home/kardelenbilir/Downloads/GN_V180/GN_V180_XML")
 # Bestimme das aktuelle Verzeichnis, in dem das Skript ausgeführt wird
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -70,6 +71,15 @@ def read_reference_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         reference_words = [line.strip().lower() for line in f]
     return reference_words
+
+
+# Funktion, um zu prüfen, ob ein Wort in GermaNet ist, unabhängig von Groß-/Kleinschreibung
+def check_word_in_germanet_ignore_case(word):
+    # Erstelle eine Filterkonfiguration und ignoriere Groß- und Kleinschreibung
+    filterconfig = Filterconfig(word, ignore_case=True)
+    synsets = filterconfig.filter_synsets(germanet_object)
+
+    return len(synsets) > 0
 
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
@@ -122,6 +132,8 @@ def detect_language(text):
     return 'en'
 
 # Vergleicht die extrahierten Wörter mit der Referenzdatei
+# Funktion zum Vergleich der extrahierten Phrasen/Wörter mit dem Wörterbuch
+# Vergleicht die extrahierten Wörter mit der Referenzdatei und GermaNet
 def compare_phrases_with_reference(new_phrases, reference_words):
     reference_set = set(reference_words)
     updated_new_phrases = []
@@ -129,6 +141,8 @@ def compare_phrases_with_reference(new_phrases, reference_words):
     for phrase in new_phrases:
         words_in_phrase = phrase.lower().split()  # Zerlege die Phrase in einzelne Wörter und prüfe jedes Wort
         if not all(word in reference_set for word in words_in_phrase):
+            # Prüfe, ob das Wort in GermaNet ist (case-insensitive)
+            if not check_word_in_germanet_ignore_case(phrase):
                 updated_new_phrases.append(
                     phrase)  # Nur hinzufügen, wenn es nicht in der Referenzdatei und nicht in GermaNet ist
 
@@ -229,7 +243,7 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
         logging.info(f"Neue tägliche Zusammenfassung für {start_date} erstellt.")
 
     # Füge dies hinzu: Speichere das Vokabelwachstum separat
-    vocabulary_growth_collection = db['SS2vocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+    vocabulary_growth_collection = db['SSvocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {

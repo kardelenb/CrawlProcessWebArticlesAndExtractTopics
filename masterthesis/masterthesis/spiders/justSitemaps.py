@@ -27,6 +27,10 @@ def get_stored_comments(url):
     return set()
 # Prüft, ob eine Sitemap vorhanden ist, und sucht nach Sitemaps wie 'post-sitemap' oder 'sitemap.xml'
 def get_all_sitemap_links(base_url):
+    if "zeitschrift-luxemburg" in base_url:
+        # Für zeitschrift-luxemburg.de direkt die Haupt-Sitemap verwenden
+        return [f"{base_url}/sitemap.xml"]
+
     possible_sitemaps = [
         f"{base_url}/sitemap.xml",
         f"{base_url}/wp-sitemap.xml",
@@ -102,7 +106,8 @@ def extract_content_from_html(html_content):
         section.decompose()
 
     # Extrahiere den Text aus dem bereinigten HTML (nach dem Entfernen der Kommentare)
-    article = soup.find('article') or soup.find('div', class_="postcontent") or soup.find('div', class_="singlepost")
+    article = soup.find('article') or soup.find('div', class_="postcontent") or soup.find('div', class_="singlepost") or soup.find('div', class_="article-text")
+
 
     if article:
         paragraphs = article.find_all('p')
