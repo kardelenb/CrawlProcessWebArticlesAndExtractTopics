@@ -1,4 +1,4 @@
-# Web Scraping und Textverarbeitung für Artikel und Kommentare
+# Topic Extraction and Query Generation From Websites
 
 Dieses Projekt besteht aus zwei Hauptteilen:
 
