@@ -474,7 +474,7 @@ def scrape_article(url, processed_urls, sitemap_based=True):
         stored_comments = get_stored_comments(url) if article_exists else set()
 
         # Verwende Selenium für "zeitschrift-luxemburg.de", sonst normalen Abruf
-        if "zeitschrift-luxemburg.de" in url:
+        if "zeitschrift-luxemburg.de" in url or "antifainfoblatt.de" in url:
             logging.info(f"Verwende Selenium für URL: {url}")
             content = extract_article_content_with_selenium(url)
         else:
@@ -518,32 +518,33 @@ def scrape_article(url, processed_urls, sitemap_based=True):
 # Hauptfunktion zum Finden und Scrapen von Artikeln
 def main():
     base_url = input("Gib die Basis-URL der Webseite ein (z.B. https://example.com): ").strip()
-    #base_url = "https://www.stahlschlag.de"
 
     # Lade die bereits verarbeiteten URLs
     processed_urls = load_processed_urls(base_url)
-    #processed_urls = []
 
     # Prüfe, ob die Webseite eine Sitemap hat
     sitemap_links = get_all_sitemap_links(base_url)
 
+    all_urls = []  # Liste für alle gesammelten URLs
+
+    # 1. URLs aus der Sitemap sammeln, wenn vorhanden
     if sitemap_links:
         logging.info("Verarbeite Artikel von Sitemaps.")
-        all_urls = []
         for sitemap_url in sitemap_links:
             all_urls.extend(get_urls_from_sitemap(sitemap_url))
 
-        new_urls = [url for url in all_urls if url not in processed_urls]
-        # Scrape die Artikel von URLs, die aus der Sitemap extrahiert wurden
-        for url in new_urls:
-            scrape_article(url, processed_urls, sitemap_based=True)
-            time.sleep(1)
-    elif not sitemap_links:
+    # 2. Wenn keine Sitemaps gefunden wurden, crawlen wir die Webseite
+    if not sitemap_links or not all_urls:
+        logging.info(f"Keine Sitemap gefunden, Crawling für: {base_url}")
         crawled_urls = crawl(base_url)
-        print(crawled_urls)
-    else:
-        logging.error(f"Keine Sitemaps gefunden für: {base_url}")
+        all_urls.extend(crawled_urls)
 
+    # 3. Nun verarbeiten wir alle gesammelten URLs
+    new_urls = [url for url in all_urls if url not in processed_urls]  # Filtere bereits verarbeitete URLs
+
+    for url in new_urls:
+        scrape_article(url, processed_urls, sitemap_based=False)  # Sitemap-basierte Logik auf False setzen
+        time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
 
 if __name__ == '__main__':
     main()
