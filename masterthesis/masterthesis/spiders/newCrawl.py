@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['test']
+collection = db['luxemburg_raw']
 
 
 def crawl(initial_url):
@@ -469,11 +469,11 @@ def extract_article_content_with_selenium(article_url):
 # Funktion zum Scraping eines Artikels
 def scrape_article(url, processed_urls, sitemap_based=True):
     try:
-        # Überprüfe, ob der Artikel bereits gespeichert wurde
-        article_exists = url in processed_urls
-        stored_comments = get_stored_comments(url) if article_exists else set()
+        # Überprüfe, ob der Artikel bereits in der MongoDB existiert
+        article = collection.find_one({'url': url})
+        stored_comments = get_stored_comments(url) if article else set()
 
-        # Verwende Selenium für "zeitschrift-luxemburg.de", sonst normalen Abruf
+        # Verwende Selenium für bestimmte Webseiten, ansonsten normalen Abruf
         if "zeitschrift-luxemburg.de" in url or "antifainfoblatt.de" in url:
             logging.info(f"Verwende Selenium für URL: {url}")
             content = extract_article_content_with_selenium(url)
@@ -496,9 +496,9 @@ def scrape_article(url, processed_urls, sitemap_based=True):
                     {'url': url},
                     {'$addToSet': {'comments': {'$each': new_comments}}},
                 )
-                logging.info(f"Artikel aktualisiert: {url}, neue Kommentare: {len(new_comments)}")
+                logging.info(f"Kommentare aktualisiert: {url}, neue Kommentare: {len(new_comments)}")
 
-            if not article_exists:
+            if not article:
                 # Wenn der Artikel noch nicht existiert, speichern wir den gesamten Artikel
                 collection.insert_one({
                     'title': title_text,
@@ -508,12 +508,11 @@ def scrape_article(url, processed_urls, sitemap_based=True):
                 })
                 logging.info(f"Artikel erfolgreich gespeichert: {url}")
 
-            # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert wurde
+            # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert oder aktualisiert wurde
             processed_urls.add(url)
 
     except requests.RequestException as e:
         logging.error(f"Artikel konnte nicht gescraped werden: {url} aufgrund von {str(e)}")
-
 
 # Hauptfunktion zum Finden und Scrapen von Artikeln
 def main():

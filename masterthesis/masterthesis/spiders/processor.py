@@ -17,18 +17,19 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['rechteRand']
-processed_collection = db['RechteRandprocessed']
-vocabulary_collection = db['RechteRandVocab']
-daily_summary_collection = db['RechteRandDaily']
+collection = db['test']
+processed_collection = db['Antifaprocessed']
+vocabulary_collection = db['AntifaVocab']
+daily_summary_collection = db['AntifaDaily']
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['RRprocess_progress']
+progress_collection = db['AAprocess_progress']
 
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-start_date = datetime.now().strftime('%Y-%m-%d')
+#start_date = datetime.now().strftime('%Y-%m-%d')
+start_date = '2024-10-14'
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -240,7 +241,7 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
 
     # Füge dies hinzu: Speichere das Vokabelwachstum separat
     vocabulary_growth_collection = db[
-        'RRvocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+        'AAvocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {
@@ -293,7 +294,6 @@ def process_articles():
                     url = article['url']
                     full_text = article['full_text']
                     comments = article.get('comments', [])  # Hole die Kommentare oder setze sie als leere Liste
-                    language = detect_language(full_text)
 
                     # Überprüfe, ob der Artikel bereits verarbeitet wurde
                     if article_already_processed(url):
@@ -310,6 +310,13 @@ def process_articles():
                             )
                             logging.info(f"Neue Kommentare hinzugefügt: {len(new_comments)} für Artikel {url}")
                         continue  # Überspringe den Rest, da der Artikel bereits verarbeitet wurde
+
+                        # Überprüfe, ob der Artikeltext leer ist
+                    if not full_text:
+                        logging.warning(f"Artikel {url} enthält keinen Text. Überspringe.")
+                        continue  # Überspringe Artikel mit leerem Text
+
+                    language = detect_language(full_text)
 
                     # Extrahiere Phrasen aus dem Artikeltext
                     filtered_article_phrases = extract_keywords_and_phrases(full_text, language, n=2)
