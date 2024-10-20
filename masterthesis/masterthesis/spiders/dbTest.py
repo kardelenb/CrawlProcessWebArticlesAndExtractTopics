@@ -1,4 +1,4 @@
-'''from pymongo import MongoClient
+from pymongo import MongoClient
 import logging
 
 # Logging konfigurieren
@@ -7,11 +7,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB herstellen
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['rechteRand']
+collection = db['sezession0510raw']
 
 # Funktion zum Entfernen von URLs, die nicht mit 'https://sezession.de/' beginnen
 def remove_invalid_urls():
-    base_url = 'https://www.der-rechte-rand.de/'
+    base_url = 'https://sezession.de/'
 
     # Überprüfen, wie viele Dokumente es insgesamt in der Collection gibt
     total_count = collection.count_documents({})
@@ -41,7 +41,7 @@ def remove_invalid_urls():
 
 # Aufruf der Funktion
 remove_invalid_urls()
-'''
+
 
 '''
 # Funktion zum Überprüfen auf doppelte URLs
@@ -174,15 +174,16 @@ if word_in_vocabulary:
 else:
     print(f"Das Wort '{word_to_check}' ist noch nicht im Vokabular vorhanden.")
 '''
+'''
 from pymongo import MongoClient
 
 # Verbindung zur MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-vocabulary_collection = db['vocabularySezession']  # Die Collection, in der die Vokabeln gespeichert sind
+vocabulary_collection = db['vocabularySezessionWithoutGN']  # Die Collection, in der die Vokabeln gespeichert sind
 
 # Das Wort, nach dem gesucht werden soll
-word_to_check = 'legale Apostasie'
+word_to_check = 'Moslemsocke'
 
 # Suche nach dem Wort in der Collection
 word_info = vocabulary_collection.find_one({'word': word_to_check})
@@ -197,3 +198,4 @@ if word_info:
     print(f"Comment Occurrences: {word_info['comment_occurrences']}")
 else:
     print(f"Das Wort '{word_to_check}' ist nicht im Vokabular vorhanden.")
+    '''

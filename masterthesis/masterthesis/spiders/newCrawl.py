@@ -23,11 +23,21 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['luxemburg_raw']
+collection = db['indyMedia']
+crawled_urls_collection = db['crawled_urlsIM']  # Sammlung für gecrawlte URLs
 
+# Funktion zum Speichern der gecrawlten URL
+def save_crawled_url(url):
+    """
+    Speichert die URL in der MongoDB, nachdem sie erfolgreich gecrawlt wurde.
+    """
+    try:
+        crawled_urls_collection.insert_one({'url': url})
+        logging.info(f"URL gespeichert: {url}")
+    except Exception as e:
+        logging.error(f"Fehler beim Speichern der URL {url}: {e}")
 
 def crawl(initial_url):
-    print("Starte WebDriver-Initialisierung...")
     def create_webdriver():
         try:
             # Setze die Optionen für den Chrome-Browser
@@ -39,7 +49,6 @@ def crawl(initial_url):
 
             driver = webdriver.Chrome(options=chrome_options)
 
-            print("WebDriver erfolgreich initialisiert!")
             return driver
         except Exception as e:
             print(f"Error initializing WebDriver: {e}")
@@ -200,6 +209,7 @@ def crawl(initial_url):
 
         try:
             driver.get(url)  # Open the URL in the browser
+            time.sleep(10)
 
             if (dict_request["status_code"] == 200 or dict_request["status_code"] == 302) and "html" in dict_request[
                 "content_type"]:
@@ -245,7 +255,8 @@ def crawl(initial_url):
         """
         result_urls = []
         for url in urls:
-            if url not in crawled_urls:  # Avoid re-crawling already processed URLs
+            if url not in crawled_urls and collection.count_documents({'url': url}, limit=1) == 0:
+
                 try:
                     dict_request = get_url_header(url)  # Get URL metadata
 
@@ -260,6 +271,10 @@ def crawl(initial_url):
                         crawled_urls.append(url)  # Mark URL as crawled
 
                         result_urls.extend(new_urls)  # Add new URLs to results
+
+                        save_crawled_url(url)
+                        time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
+
                 except Exception as e:
                     print(f"Error crawling sub-URL {url}: {e}")
                     pass
@@ -299,6 +314,9 @@ def load_processed_urls(base_url):
     # Lade nur die URLs, die zur aktuellen Seite gehören (basierend auf der base_url)
     return set(doc['url'] for doc in collection.find({'url': {'$regex': f'^{base_url}'}}, {'url': 1}))
 
+def load_crawled_urls(base_url):
+    # Lade alle URLs, die bereits verarbeitet wurden, aus der 'test'-Kollektion
+    return set(doc['url'] for doc in collection.find({'url': {'$regex': f'^{base_url}'}}, {'url': 1}))
 
 # Funktion zum Abrufen von bereits gespeicherten Kommentaren für eine URL
 def get_stored_comments(url):
@@ -314,10 +332,15 @@ def get_all_sitemap_links(base_url):
         # Für zeitschrift-luxemburg.de direkt die Haupt-Sitemap verwenden
         return [f"{base_url}/sitemap.xml"]
 
+    if "blauenarzisse" in base_url:
+        # Für blauenarzisse.de direkt die Haupt-Sitemap verwenden
+        return [f"{base_url}/sitemap-1.xml"]
+
     possible_sitemaps = [
         f"{base_url}/sitemap.xml",
         f"{base_url}/wp-sitemap.xml",
         f"{base_url}/sitemap_index.xml"
+        #f"{base_url}/sitemap-1.xml"
     ]
 
     sitemap_links = []
@@ -339,6 +362,7 @@ def get_all_sitemap_links(base_url):
     filtered_sitemap_links = [
         link for link in sitemap_links
         if 'posts-post' in link or 'post-sitemap' in link
+           #or 'sitemap' in link
     ]
 
     # Dedupliziere die Sitemap-Links, damit jeder Link nur einmal verarbeitet wird
@@ -467,8 +491,13 @@ def extract_article_content_with_selenium(article_url):
         driver.quit()
 
 # Funktion zum Scraping eines Artikels
-def scrape_article(url, processed_urls, sitemap_based=True):
+def scrape_article(url, processed_urls, crawled_urls, sitemap_based=True):
     try:
+        # Überprüfe, ob die URL ein Fragment (#) enthält und überspringe sie, falls ja
+        if '#' in url:
+            logging.info(f"Überspringe URL mit Fragment (#): {url}")
+            return
+
         # Überprüfe, ob der Artikel bereits in der MongoDB existiert
         article = collection.find_one({'url': url})
         stored_comments = get_stored_comments(url) if article else set()
@@ -480,6 +509,30 @@ def scrape_article(url, processed_urls, sitemap_based=True):
         else:
             response = requests.get(url)
             response.raise_for_status()
+
+            # Überprüfe den Content-Type des Headers
+            content_type = response.headers.get('Content-Type', '').lower()
+
+            # Liste von Content-Types, die binäre Daten anzeigen und übersprungen werden sollten
+            ignored_content_types = [
+                'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff', 'image/webp',  # Bildformate
+                'application/pdf', 'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # Dokumente
+                'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-powerpoint',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'audio/mpeg', 'audio/wav', 'video/mp4', 'video/avi', 'video/quicktime',  # Multimedia
+                'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',  # Archivformate
+                'application/octet-stream', 'application/x-binary'  # Binäre Daten
+            ]
+
+            # Wenn der Content-Type kein HTML ist, überspringe die URL
+            if 'text/html' not in content_type and any(
+                    ignored_type in content_type for ignored_type in ignored_content_types):
+                logging.warning(f"Überspringe nicht-HTML Inhalt: {url} (Content-Type: {content_type})")
+                return
+
+            # Nur HTML-Inhalte mit BeautifulSoup parsen
             content = extract_content_from_html(response.content)
 
         if content:
@@ -510,6 +563,9 @@ def scrape_article(url, processed_urls, sitemap_based=True):
 
             # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert oder aktualisiert wurde
             processed_urls.add(url)
+            crawled_urls.add(url)
+            time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
+
 
     except requests.RequestException as e:
         logging.error(f"Artikel konnte nicht gescraped werden: {url} aufgrund von {str(e)}")
@@ -520,6 +576,9 @@ def main():
 
     # Lade die bereits verarbeiteten URLs
     processed_urls = load_processed_urls(base_url)
+
+    # Lade die bereits gecrawlten URLs
+    crawled_urls = load_crawled_urls(base_url)
 
     # Prüfe, ob die Webseite eine Sitemap hat
     sitemap_links = get_all_sitemap_links(base_url)
@@ -535,14 +594,14 @@ def main():
     # 2. Wenn keine Sitemaps gefunden wurden, crawlen wir die Webseite
     if not sitemap_links or not all_urls:
         logging.info(f"Keine Sitemap gefunden, Crawling für: {base_url}")
-        crawled_urls = crawl(base_url)
-        all_urls.extend(crawled_urls)
+        crawled_urls_in_crawl = crawl(base_url)
+        all_urls.extend(crawled_urls_in_crawl)
 
     # 3. Nun verarbeiten wir alle gesammelten URLs
-    new_urls = [url for url in all_urls if url not in processed_urls]  # Filtere bereits verarbeitete URLs
+    new_urls = [url for url in all_urls if url not in processed_urls and url not in crawled_urls]  # Filtere bereits verarbeitete und gecrawlte URLs
 
     for url in new_urls:
-        scrape_article(url, processed_urls, sitemap_based=False)  # Sitemap-basierte Logik auf False setzen
+        scrape_article(url, processed_urls, crawled_urls, sitemap_based=False)  # Sitemap-basierte Logik auf False setzen
         time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
 
 if __name__ == '__main__':
