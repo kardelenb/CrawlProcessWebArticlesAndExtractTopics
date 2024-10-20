@@ -1,4 +1,4 @@
-from pymongo import MongoClient
+'''from pymongo import MongoClient
 import logging
 
 # Logging konfigurieren
@@ -41,7 +41,7 @@ def remove_invalid_urls():
 
 # Aufruf der Funktion
 remove_invalid_urls()
-
+'''
 
 '''
 # Funktion zum Überprüfen auf doppelte URLs
@@ -199,3 +199,56 @@ if word_info:
 else:
     print(f"Das Wort '{word_to_check}' ist nicht im Vokabular vorhanden.")
     '''
+'''
+from pymongo import MongoClient
+
+client = MongoClient('mongodb://localhost:27017/')
+db = client['scrapy_database']
+collection = db['sezession0510raw']
+
+def searchUrl(url_to_search):
+    result = collection.find_one({"url": url_to_search})
+
+    if result:
+        print(f"Url gefunden: {result}")
+
+if __name__ == '__main__':
+    url_to_search = 'https://sezession.de/68309/hinter-den-linien-tagebuch'
+    searchUrl(url_to_search)
+    '''
+import json
+from pymongo import MongoClient
+from bson import ObjectId
+
+# Verbindung zu MongoDB herstellen
+client = MongoClient('mongodb://localhost:27017/')
+db = client['scrapy_database']
+collection = db['sezessionWithoutGermanetProcessed']  # Beispielhafte Collection
+
+# Funktion, um den ObjectId-Typ zu serialisieren
+class JSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, ObjectId):
+            return str(o)  # ObjectId in einen String umwandeln
+        return super(JSONEncoder, self).default(o)
+
+# Funktion, um den Eintrag mit einer bestimmten URL zu finden und in eine JSON-Datei zu speichern
+def get_article_by_url_and_save(url, json_file):
+    article = collection.find_one({'url': url})  # Sucht nach dem Dokument mit der URL
+    if article:
+        print("Artikel gefunden:")
+        #print(article)  # Gibt das gesamte Dokument aus
+        # Speichern des Artikels in einer JSON-Datei
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(article, f, cls=JSONEncoder, ensure_ascii=False, indent=4)
+        print(f"Artikel wurde in {json_file} gespeichert.")
+    else:
+        print("Kein Artikel mit dieser URL gefunden.")
+
+# Beispiel-URL und der Name der JSON-Datei
+url_to_search = 'https://sezession.de/66441/wiedervorlage-12-queen-elisabeth-ii'  # Setze hier die richtige URL ein
+json_file_name = 'article_data4.json'
+
+# Aufruf der Funktion mit der Beispiel-URL
+get_article_by_url_and_save(url_to_search, json_file_name)
+

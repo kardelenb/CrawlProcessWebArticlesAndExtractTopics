@@ -7,7 +7,6 @@ import logging
 import socket
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By  # Used to locate elements by their tag name
-from seleniumbase import Driver  # SeleniumBase's Driver to manage the WebDriver session
 import time  # Used for sleep pauses in scrolling
 import os  # Used to handle paths
 import inspect  # Used to inspect the current script's path
@@ -23,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['indyMedia']
+collection = db['sezession0510raw']
 crawled_urls_collection = db['crawled_urlsIM']  # Sammlung für gecrawlte URLs
 
 # Funktion zum Speichern der gecrawlten URL
@@ -209,7 +208,7 @@ def crawl(initial_url):
 
         try:
             driver.get(url)  # Open the URL in the browser
-            time.sleep(10)
+            #time.sleep(10)
 
             if (dict_request["status_code"] == 200 or dict_request["status_code"] == 302) and "html" in dict_request[
                 "content_type"]:
@@ -272,8 +271,8 @@ def crawl(initial_url):
 
                         result_urls.extend(new_urls)  # Add new URLs to results
 
-                        save_crawled_url(url)
-                        time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
+                        #save_crawled_url(url)
+                        #time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
 
                 except Exception as e:
                     print(f"Error crawling sub-URL {url}: {e}")
@@ -543,15 +542,29 @@ def scrape_article(url, processed_urls, crawled_urls, sitemap_based=True):
             # Neue Kommentare identifizieren
             new_comments = [comment for comment in comments if comment not in stored_comments]
 
-            if new_comments:
-                # Wenn es neue Kommentare gibt, aktualisieren wir nur die Kommentare
-                collection.update_one(
-                    {'url': url},
-                    {'$addToSet': {'comments': {'$each': new_comments}}},
-                )
-                logging.info(f"Kommentare aktualisiert: {url}, neue Kommentare: {len(new_comments)}")
+            if article:
+                # Überprüfe, ob der Artikeltext sich geändert hat
+                if article['full_text'] != full_text or new_comments:
+                    update_fields = {}
 
-            if not article:
+                    # Wenn der Text sich geändert hat, aktualisieren
+                    if article['full_text'] != full_text:
+                        update_fields['full_text'] = full_text
+
+                    # Wenn es neue Kommentare gibt, aktualisiere nur die Kommentare
+                    if new_comments:
+                        update_fields['comments'] = {'$addToSet': {'$each': new_comments}}
+
+                    # Artikel in der Datenbank aktualisieren
+                    if update_fields:
+                        collection.update_one(
+                            {'url': url},
+                            {'$set': update_fields}
+                        )
+                        logging.info(f"Artikel aktualisiert: {url}")
+                    else:
+                        logging.info(f"Artikel ist bereits auf dem neuesten Stand: {url}")
+            else:
                 # Wenn der Artikel noch nicht existiert, speichern wir den gesamten Artikel
                 collection.insert_one({
                     'title': title_text,
@@ -564,12 +577,23 @@ def scrape_article(url, processed_urls, crawled_urls, sitemap_based=True):
             # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert oder aktualisiert wurde
             processed_urls.add(url)
             crawled_urls.add(url)
-            time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
-
+            #time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
 
     except requests.RequestException as e:
         logging.error(f"Artikel konnte nicht gescraped werden: {url} aufgrund von {str(e)}")
 
+# Funktion zum erneuten Crawlen von bereits gespeicherten URLs
+def crawl_stored_urls():
+    """
+    Crawlt URLs, die bereits in der Datenbank gespeichert sind, um den Artikeltext und die Kommentare zu aktualisieren.
+    """
+    # Alle bereits gespeicherten URLs aus der MongoDB abrufen
+    stored_urls = collection.find({}, {'url': 1})
+
+    for doc in stored_urls:
+        url = doc['url']
+        logging.info(f"Neues Crawlen der gespeicherten URL: {url}")
+        scrape_article(url, processed_urls=set(), crawled_urls=set())  # Re-crawl jede URL und verarbeite sie erneut
 # Hauptfunktion zum Finden und Scrapen von Artikeln
 def main():
     base_url = input("Gib die Basis-URL der Webseite ein (z.B. https://example.com): ").strip()
@@ -603,6 +627,10 @@ def main():
     for url in new_urls:
         scrape_article(url, processed_urls, crawled_urls, sitemap_based=False)  # Sitemap-basierte Logik auf False setzen
         time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
+    # 4. Optional: Crawle alle bereits gespeicherten URLs erneut
+    logging.info("Starte das Re-Crawling aller gespeicherten URLs.")
+    crawl_stored_urls()  # Re-crawlen der bereits gespeicherten Artikel
+
 
 if __name__ == '__main__':
     main()
