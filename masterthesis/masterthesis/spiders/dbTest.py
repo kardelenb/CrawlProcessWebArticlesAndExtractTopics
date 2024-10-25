@@ -216,6 +216,7 @@ if __name__ == '__main__':
     url_to_search = 'https://sezession.de/68309/hinter-den-linien-tagebuch'
     searchUrl(url_to_search)
     '''
+'''
 import json
 from pymongo import MongoClient
 from bson import ObjectId
@@ -223,7 +224,7 @@ from bson import ObjectId
 # Verbindung zu MongoDB herstellen
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['sezessionWithoutGermanetProcessed']  # Beispielhafte Collection
+collection = db['antifaInfaBlattNeu']  # Beispielhafte Collection
 
 # Funktion, um den ObjectId-Typ zu serialisieren
 class JSONEncoder(json.JSONEncoder):
@@ -246,9 +247,40 @@ def get_article_by_url_and_save(url, json_file):
         print("Kein Artikel mit dieser URL gefunden.")
 
 # Beispiel-URL und der Name der JSON-Datei
-url_to_search = 'https://sezession.de/66441/wiedervorlage-12-queen-elisabeth-ii'  # Setze hier die richtige URL ein
+url_to_search = 'http://antifainfoblatt.prod.ifg.io/aib94/schlimmer-als-vermutet'  # Setze hier die richtige URL ein
 json_file_name = 'article_data4.json'
 
 # Aufruf der Funktion mit der Beispiel-URL
 get_article_by_url_and_save(url_to_search, json_file_name)
+'''
 
+from pymongo import MongoClient
+import logging
+
+# Logging konfigurieren
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Verbindung zu MongoDB herstellen
+client = MongoClient('mongodb://localhost:27017/')
+db = client['scrapy_database']
+collection = db['antifaInfaBlattNeu']
+
+
+# Funktion zum Löschen eines bestimmten Eintrags anhand der URL
+def delete_specific_url(url):
+    """
+    Diese Funktion löscht ein Dokument mit einer bestimmten URL aus der MongoDB-Collection.
+    """
+    # Versuche, das Dokument mit der angegebenen URL zu löschen
+    result = collection.delete_one({'url': url})
+
+    if result.deleted_count > 0:
+        logging.info(f"URL erfolgreich gelöscht: {url}")
+    else:
+        logging.info(f"Kein Dokument mit der URL {url} gefunden.")
+
+
+# Beispielaufruf der Funktion
+url_to_delete = 'https://antifainfoblatt.de/aib143/die-berliner-burschenschaft-gothia'  # Gib hier die URL ein, die du löschen möchtest
+
+delete_specific_url(url_to_delete)

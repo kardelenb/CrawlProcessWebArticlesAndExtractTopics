@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['sezession0510raw']
+collection = db['antifaInfaBlattNeu']
 crawled_urls_collection = db['crawled_urlsIM']  # Sammlung für gecrawlte URLs
 
 # Funktion zum Speichern der gecrawlten URL
@@ -335,11 +335,18 @@ def get_all_sitemap_links(base_url):
         # Für blauenarzisse.de direkt die Haupt-Sitemap verwenden
         return [f"{base_url}/sitemap-1.xml"]
 
+    if "antifainfoblatt" in base_url:
+        # Spezielle Behandlung für antifainfoblatt.de: Nur die Sitemaps für Seite 1 und Seite 2 verwenden
+        return [
+            f"{base_url}/sitemap.xml?page=1",
+            f"{base_url}/sitemap.xml?page=2"
+        ]
+
     possible_sitemaps = [
         f"{base_url}/sitemap.xml",
         f"{base_url}/wp-sitemap.xml",
         f"{base_url}/sitemap_index.xml"
-        #f"{base_url}/sitemap-1.xml"
+        f"{base_url}/sitemap-1.xml"
     ]
 
     sitemap_links = []
@@ -367,6 +374,15 @@ def get_all_sitemap_links(base_url):
     # Dedupliziere die Sitemap-Links, damit jeder Link nur einmal verarbeitet wird
     return list(set(filtered_sitemap_links))  # Verwende ein Set, um Duplikate zu entfernen
 
+def normalize_domain_with_exception(url):
+    """
+    Normalisiert die URL nur, wenn sie von 'antifainfoblatt' stammt.
+    """
+    if 'antifainfoblatt.prod.ifg.io' in url:
+        # Normalisiere die URL, wenn sie von 'antifainfoblatt.prod.ifg.io' kommt
+        return url.replace('http://antifainfoblatt.prod.ifg.io', 'https://antifainfoblatt.de')
+    # Keine Änderung für andere Webseiten
+    return url
 
 # Funktion zum Abrufen der Artikel-URLs von der Sitemap
 def get_urls_from_sitemap(sitemap_url):
@@ -377,6 +393,9 @@ def get_urls_from_sitemap(sitemap_url):
 
         # Finde alle Artikel-URLs in den Sitemaps
         urls = [url_loc.text for url_loc in soup.find_all('loc')]
+
+        # Normalisiere die URLs nur für 'antifainfoblatt'
+        normalized_urls = [normalize_domain_with_exception(url) for url in urls]
 
         # Liste der Dateitypen, die wir ausschließen möchten
         excluded_file_types = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.pdf', '.doc', '.docx', '.mp3', '.mp4',
@@ -502,7 +521,7 @@ def scrape_article(url, processed_urls, crawled_urls, sitemap_based=True):
         stored_comments = get_stored_comments(url) if article else set()
 
         # Verwende Selenium für bestimmte Webseiten, ansonsten normalen Abruf
-        if "zeitschrift-luxemburg.de" in url or "antifainfoblatt.de" in url:
+        if "zeitschrift-luxemburg.de" in url:
             logging.info(f"Verwende Selenium für URL: {url}")
             content = extract_article_content_with_selenium(url)
         else:
@@ -622,14 +641,14 @@ def main():
         all_urls.extend(crawled_urls_in_crawl)
 
     # 3. Nun verarbeiten wir alle gesammelten URLs
-    new_urls = [url for url in all_urls if url not in processed_urls and url not in crawled_urls]  # Filtere bereits verarbeitete und gecrawlte URLs
+    new_urls = [url for url in all_urls if normalize_domain_with_exception(url) not in processed_urls and normalize_domain_with_exception(url) not in crawled_urls]  # Filtere bereits verarbeitete und gecrawlte URLs
 
     for url in new_urls:
         scrape_article(url, processed_urls, crawled_urls, sitemap_based=False)  # Sitemap-basierte Logik auf False setzen
         time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
     # 4. Optional: Crawle alle bereits gespeicherten URLs erneut
-    logging.info("Starte das Re-Crawling aller gespeicherten URLs.")
-    crawl_stored_urls()  # Re-crawlen der bereits gespeicherten Artikel
+    #logging.info("Starte das Re-Crawling aller gespeicherten URLs.")
+    #crawl_stored_urls()  # Re-crawlen der bereits gespeicherten Artikel
 
 
 if __name__ == '__main__':
