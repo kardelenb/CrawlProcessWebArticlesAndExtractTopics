@@ -9,7 +9,6 @@ from pymongo import MongoClient, errors
 from datetime import datetime
 import logging
 import os
-
 # Logging konfigurieren
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('pymongo').setLevel(logging.WARNING)
@@ -17,19 +16,19 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['luxemburg_raw']
+collection = db['indyMedia']
 
-processed_collection_de = db['luxemburgProcessedGe']
-processed_collection_en = db['luxemburgProcessedEn']
-vocabulary_collection_de = db['luxemburgVoc_ge']
-vocabulary_collection_en = db['luxemburgVoc_en']
-daily_summary_collection_de = db['luxemburgDailyGe']
-daily_summary_collection_en = db['luxemburgDailyEn']
-progress_collection_de = db['luxemburg_progressGe']
-progress_collection_en = db['luxemburg_progressEn']
+processed_collection_de = db['imProcessedGe']
+processed_collection_en = db['imProcessedEn']
+vocabulary_collection_de = db['imVoc_ge']
+vocabulary_collection_en = db['imVoc_en']
+daily_summary_collection_de = db['imDailyGe']
+daily_summary_collection_en = db['imDailyEn']
+progress_collection_de = db['im_progressGe']
+progress_collection_en = db['im_progressEn']
 
-vocabulary_growth_collection_de = db['luxemburg_growth_ge']
-vocabulary_growth_collection_en = db['luxemburg_growth_en']
+vocabulary_growth_collection_de = db['im_growth_ge']
+vocabulary_growth_collection_en = db['im_growth_en']
 # Neue Sammlung, um den Fortschritt zu speichern
 #progress_collection = db['RRprocess_progress']
 
@@ -37,8 +36,8 @@ processed_collection_de.create_index('url')
 processed_collection_en.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-#start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-10-10'
+start_date = datetime.now().strftime('%Y-%m-%d')
+#start_date = '2024-10-24'
 
 def detect_language(text):
     german_count = sum(1 for word in text.split() if word.lower() in german_stop_words)
@@ -375,6 +374,12 @@ def process_articles():
                 for article in cursor_de:
                     url = article['url']
                     full_text = article['full_text']
+
+                    # Überspringe Artikel, wenn 'full_text' leer ist
+                    if not full_text:
+                        logging.warning(f"Artikel {url} hat keinen Text. Überspringe.")
+                        continue
+
                     comments = article.get('comments', [])
                     language = detect_language(full_text)
 
@@ -413,6 +418,12 @@ def process_articles():
                 for article in cursor_en:
                     url = article['url']
                     full_text = article['full_text']
+
+                    # Überspringe Artikel, wenn 'full_text' leer ist
+                    if not full_text:
+                        logging.warning(f"Artikel {url} hat keinen Text. Überspringe.")
+                        continue
+
                     comments = article.get('comments', [])
                     language = detect_language(full_text)
 
