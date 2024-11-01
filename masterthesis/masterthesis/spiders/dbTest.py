@@ -42,8 +42,16 @@ def remove_invalid_urls():
 # Aufruf der Funktion
 remove_invalid_urls()
 '''
-
 '''
+import json
+import logging
+
+from pymongo import MongoClient
+
+client = MongoClient('mongodb://localhost:27017/')
+db = client['scrapy_database']
+collection = db['sezession0510raw']
+
 # Funktion zum Überprüfen auf doppelte URLs
 def check_duplicate_urls():
     # Gruppiere nach 'url' und zähle die Anzahl der Einträge pro URL
@@ -216,7 +224,7 @@ if __name__ == '__main__':
     url_to_search = 'https://sezession.de/68309/hinter-den-linien-tagebuch'
     searchUrl(url_to_search)
     '''
-'''
+
 import json
 from pymongo import MongoClient
 from bson import ObjectId
@@ -224,7 +232,7 @@ from bson import ObjectId
 # Verbindung zu MongoDB herstellen
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['antifaInfaBlattNeu']  # Beispielhafte Collection
+collection = db['imProcessedGe']  # Beispielhafte Collection
 
 # Funktion, um den ObjectId-Typ zu serialisieren
 class JSONEncoder(json.JSONEncoder):
@@ -247,23 +255,22 @@ def get_article_by_url_and_save(url, json_file):
         print("Kein Artikel mit dieser URL gefunden.")
 
 # Beispiel-URL und der Name der JSON-Datei
-url_to_search = 'http://antifainfoblatt.prod.ifg.io/aib94/schlimmer-als-vermutet'  # Setze hier die richtige URL ein
+url_to_search = 'https://de.indymedia.org/node/468409'  # Setze hier die richtige URL ein
 json_file_name = 'article_data4.json'
 
 # Aufruf der Funktion mit der Beispiel-URL
 get_article_by_url_and_save(url_to_search, json_file_name)
-'''
 
+'''
 from pymongo import MongoClient
 import logging
-
 # Logging konfigurieren
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Verbindung zu MongoDB herstellen
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['antifaInfaBlattNeu']
+collection = db['indyMedia']
 
 
 # Funktion zum Löschen eines bestimmten Eintrags anhand der URL
@@ -281,6 +288,50 @@ def delete_specific_url(url):
 
 
 # Beispielaufruf der Funktion
-url_to_delete = 'https://antifainfoblatt.de/aib143/die-berliner-burschenschaft-gothia'  # Gib hier die URL ein, die du löschen möchtest
+url_to_delete = 'https://sezession.de/69742/noch-einmal-menschenpark-und-hundert-stuehle'  # Gib hier die URL ein, die du löschen möchtest
 
 delete_specific_url(url_to_delete)
+'''
+'''
+import json
+from pymongo import MongoClient
+from bson import ObjectId
+
+# Verbindung zu MongoDB herstellen
+client = MongoClient('mongodb://localhost:27017/')
+db = client['scrapy_database']
+collection = db['sezession0510raw']  # Beispielhafte Collection
+
+
+# Funktion, um den ObjectId-Typ zu serialisieren
+class JSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, ObjectId):
+            return str(o)  # ObjectId in einen String umwandeln
+        return super(JSONEncoder, self).default(o)
+
+
+# Funktion, um die letzten zwei Einträge zu holen und in eine JSON-Datei zu speichern
+def get_last_two_entries_and_save(json_file):
+    # Holen der letzten zwei Einträge nach ObjectId sortiert (neuste zuerst)
+    articles = list(collection.find().sort('_id', -1).limit(3))
+
+    if articles:
+        print("Letzte zwei Artikel gefunden:")
+        for article in articles:
+            print(article)  # Gibt jeden Eintrag aus
+
+        # Speichern der Artikel in einer JSON-Datei
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(articles, f, cls=JSONEncoder, ensure_ascii=False, indent=4)
+        print(f"Artikel wurden in {json_file} gespeichert.")
+    else:
+        print("Keine Artikel in der Sammlung gefunden.")
+
+
+# Name der JSON-Datei
+json_file_name = 'last_three_articles.json'
+
+# Aufruf der Funktion
+get_last_two_entries_and_save(json_file_name)
+'''

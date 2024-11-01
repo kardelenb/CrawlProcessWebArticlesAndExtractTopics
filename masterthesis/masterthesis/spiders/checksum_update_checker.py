@@ -9,6 +9,7 @@ from pymongo import MongoClient, errors
 from datetime import datetime
 import logging
 import os
+import hashlib
 
 # Logging konfigurieren
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,7 +30,7 @@ processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
 #start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-10-20'
+start_date = '2024-10-19'
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -65,6 +66,10 @@ current_directory = os.path.dirname(os.path.abspath(__file__))
 
 # Gehe drei Verzeichnisebenen nach oben, um das Verzeichnis 'MASterarbeit' zu erreichen
 project_directory = os.path.abspath(os.path.join(current_directory, '..', '..', '..'))
+
+# Berechnet eine Checksumme (MD5) des Textes
+def calculate_checksum(text):
+    return hashlib.md5(text.encode('utf-8')).hexdigest()
 
 # Lese die Referenzdatei ein (bereinigte Datei)
 def read_reference_file(file_path):
@@ -265,7 +270,19 @@ def get_last_processed_id():
     progress = progress_collection.find_one()
     return progress['last_processed_id'] if progress else None
 
-
+# Prüft, ob ein Artikeltext aktualisiert wurde oder nicht
+def article_needs_update(url, new_text):
+    # Suche den Artikel und seine gespeicherte Checksumme in der Datenbank
+    article = processed_collection.find_one({'url': url}, {'checksum': 1})
+    if article:
+        # Berechne die Checksumme des neuen Textes
+        new_checksum = calculate_checksum(new_text)
+        # Prüfe, ob die neue Checksumme sich von der gespeicherten unterscheidet
+        if article.get('checksum') != new_checksum:
+            return True  # Der Text hat sich geändert, der Artikel soll erneut verarbeitet werden
+        else:
+            return False  # Keine Änderung, keine erneute Verarbeitung nötig
+    return True  # Artikel ist neu, soll verarbeitet werden
 
 # Verarbeitet Artikel
 def process_articles():
@@ -283,7 +300,7 @@ def process_articles():
 
     query = {}
     if last_processed_id:
-        query = {'_id': {'$gt': last_processed_id}}
+        query = {}
 
     try:
         with client.start_session() as session:
@@ -295,99 +312,111 @@ def process_articles():
                     full_text = article['full_text']
                     comments = article.get('comments', [])  # Hole die Kommentare oder setze sie als leere Liste
 
-                    # Überprüfe, ob der Artikel bereits verarbeitet wurde
-                    if article_already_processed(url):
-                        logging.info(f"Artikel {url} wurde bereits verarbeitet. Überspringe.")
-                        # Wenn der Artikel bereits verarbeitet wurde, prüfe auf neue Kommentare
-                        stored_comments = get_stored_comments(url)
-                        new_comments = [comment for comment in comments if comment not in stored_comments]
-
-                        # Wenn es neue Kommentare gibt, füge sie hinzu
-                        if new_comments:
-                            processed_collection.update_one(
-                                {'url': url},
-                                {'$addToSet': {'comments': {'$each': new_comments}}}
-                            )
-                            logging.info(f"Neue Kommentare hinzugefügt: {len(new_comments)} für Artikel {url}")
-                        continue  # Überspringe den Rest, da der Artikel bereits verarbeitet wurde
-
-                        # Überprüfe, ob der Artikeltext leer ist
+                    # Überspringe Artikel ohne Text
                     if not full_text:
                         logging.warning(f"Artikel {url} enthält keinen Text. Überspringe.")
-                        continue  # Überspringe Artikel mit leerem Text
-
-                    language = detect_language(full_text)
-
-                    # Extrahiere Phrasen aus dem Artikeltext
-                    filtered_article_phrases = extract_keywords_and_phrases(full_text, language, n=2)
-
-                    # Extrahiere Phrasen aus den Kommentaren (falls vorhanden)
-                    filtered_comment_phrases = []
-                    if comments:
-                        for comment in comments:
-                            filtered_comment_phrases.extend(extract_keywords_and_phrases(comment, language, n=2))
-
-                    # Falls der Artikel nur Stopwords oder keinen Text enthält
-                    if not filtered_article_phrases and not filtered_comment_phrases:
-                        logging.warning(f"Artikel {article['url']} enthält nur Stopwords oder ist leer. Überspringe.")
                         continue
 
-                    # Füge die WordNet-Überprüfung für englische Wörter hinzu
-                    new_article_phrases = []
-                    new_comment_phrases = []
+                    # Berechne die Checksummen für den Artikeltext und die Kommentare
+                    text_checksum = calculate_checksum(full_text)
+                    comments_checksum = calculate_checksum(" ".join(comments))  # Kommentare zusammenführen und Checksumme berechnen
 
-                    # Überprüfe Artikel-Phrasen mit WordNet für englische Wörter
-                    for phrase in filtered_article_phrases:
-                        if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
-                            continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
-                        new_article_phrases.append(phrase)
+                    # Überprüfe, ob der Artikeltext oder die Kommentare aktualisiert wurden
+                    article_needs_update = False
+                    stored_article = processed_collection.find_one({'url': url}, {'text_checksum': 1, 'comments_checksum': 1})
 
-                    # Überprüfe Kommentar-Phrasen mit WordNet für englische Wörter
-                    for phrase in filtered_comment_phrases:
-                        if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
-                            continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
-                        new_comment_phrases.append(phrase)
+                    if stored_article:
+                        if stored_article.get('text_checksum') != text_checksum or stored_article.get('comments_checksum') != comments_checksum:
+                            article_needs_update = True
+                            logging.info(f"Änderungen an Artikel oder Kommentaren für {url} erkannt.")
+                        else:
+                            logging.info(f"Artikel {url} ist unverändert und wird übersprungen.")
+                            continue  # Überspringe den Rest, da keine Änderungen erkannt wurden
+                    else:
+                        article_needs_update = True  # Neuer Artikel ohne gespeicherte Checksummen
 
-                    # Vergleiche die übriggebliebenen Phrasen mit der Referenzdatei
-                    new_article_phrases = compare_phrases_with_reference(new_article_phrases, reference_words)
-                    new_comment_phrases = compare_phrases_with_reference(new_comment_phrases, reference_words)
+                    # Verarbeite den Artikel nur, wenn eine Aktualisierung erforderlich ist
+                    if article_needs_update:
+                        language = detect_language(full_text)
 
-                    # Falls keine neuen Phrasen vorhanden sind, Artikel trotzdem speichern
-                    if not new_article_phrases and not new_comment_phrases:
-                        logging.info(f"Keine neuen Wörter oder Phrasen in Artikel {article['url']}.")
-                        processed_collection.insert_one({
-                            'title': article['title'],
-                            'url': article['url'],
-                            'full_text': full_text,
-                            'new_article_phrases': [],  # Keine neuen Phrasen
-                            'new_comment_phrases': [],  # Keine neuen Phrasen
-                            'first_processed': start_date,
-                            'last_processed': start_date
-                        })
-                        continue
+                        # Extrahiere Phrasen aus dem Artikeltext
+                        filtered_article_phrases = extract_keywords_and_phrases(full_text, language, n=2)
 
-                    # Aktualisiere das Vokabular für neue Phrasen im Artikeltext
-                    for phrase in new_article_phrases:
-                        update_vocabulary(phrase, start_date, 'article', all_vocabulary_today)  # Speichere als Artikelphrase
+                        # Extrahiere Phrasen aus den Kommentaren (falls vorhanden)
+                        filtered_comment_phrases = []
+                        if comments:
+                            for comment in comments:
+                                filtered_comment_phrases.extend(extract_keywords_and_phrases(comment, language, n=2))
 
-                    # Aktualisiere das Vokabular für neue Phrasen in den Kommentaren (falls vorhanden)
-                    for phrase in new_comment_phrases:
-                        update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)  # Speichere als Kommentarphrase
+                        # Falls der Artikel nur Stopwords oder keinen Text enthält
+                        if not filtered_article_phrases and not filtered_comment_phrases:
+                            logging.warning(f"Artikel {article['url']} enthält nur Stopwords oder ist leer. Überspringe.")
+                            continue
 
+                        # Füge die WordNet-Überprüfung für englische Wörter hinzu
+                        new_article_phrases = []
+                        new_comment_phrases = []
 
-                    # Speichere die neuen Phrasen und Kommentare in der Datenbank
-                    processed_collection.insert_one({
-                        'title': article['title'],
-                        'url': article['url'],
-                        'full_text': full_text,
-                        'new_article_phrases': new_article_phrases,  # Neue Phrasen aus dem Artikeltext
-                        'new_comment_phrases': new_comment_phrases,  # Neue Phrasen aus den Kommentaren (falls vorhanden)
-                        'first_processed': start_date,
-                        'last_processed': start_date
-                    })
+                        # Überprüfe Artikel-Phrasen mit WordNet für englische Wörter
+                        for phrase in filtered_article_phrases:
+                            if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
+                                continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
+                            new_article_phrases.append(phrase)
 
-                    processed_articles += 1
-                    logging.info(f"Neuer Artikel verarbeitet: {processed_articles}")
+                        # Überprüfe Kommentar-Phrasen mit WordNet für englische Wörter
+                        for phrase in filtered_comment_phrases:
+                            if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
+                                continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
+                            new_comment_phrases.append(phrase)
+
+                        # Vergleiche die übriggebliebenen Phrasen mit der Referenzdatei
+                        new_article_phrases = compare_phrases_with_reference(new_article_phrases, reference_words)
+                        new_comment_phrases = compare_phrases_with_reference(new_comment_phrases, reference_words)
+
+                        # Falls keine neuen Phrasen vorhanden sind, Artikel trotzdem speichern
+                        if not new_article_phrases and not new_comment_phrases:
+                            logging.info(f"Keine neuen Wörter oder Phrasen in Artikel {url}.")
+                            processed_collection.insert_one({
+                                'title': article['title'],
+                                'url': article['url'],
+                                'full_text': full_text,
+                                'new_article_phrases': [],  # Keine neuen Phrasen
+                                'new_comment_phrases': [],  # Keine neuen Phrasen
+                                'text_checksum': text_checksum,  # Speichere die neue Checksumme des Textes
+                                'comments_checksum': comments_checksum,  # Speichere die Checksumme der Kommentare
+                                'first_processed': start_date,
+                                'last_processed': start_date
+                            })
+                            continue
+
+                        # Aktualisiere das Vokabular für neue Phrasen im Artikeltext
+                        for phrase in new_article_phrases:
+                            update_vocabulary(phrase, start_date, 'article', all_vocabulary_today)  # Speichere als Artikelphrase
+
+                        # Aktualisiere das Vokabular für neue Phrasen in den Kommentaren (falls vorhanden)
+                        for phrase in new_comment_phrases:
+                            update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)  # Speichere als Kommentarphrase
+
+                        # Speichere die neuen Phrasen und Kommentare in der Datenbank
+                        processed_collection.update_one(
+                            {'url': url},
+                            {
+                                '$set': {
+                                    'title': article['title'],
+                                    'url': article['url'],
+                                    'full_text': full_text,
+                                    'new_article_phrases': new_article_phrases,  # Neue Phrasen aus dem Artikeltext
+                                    'new_comment_phrases': new_comment_phrases,  # Neue Phrasen aus den Kommentaren
+                                    'text_checksum': text_checksum,  # Aktualisierte Checksumme für den Text
+                                    'comments_checksum': comments_checksum,  # Aktualisierte Checksumme für Kommentare
+                                    'last_processed': start_date
+                                }
+                            },
+                            upsert=True
+                        )
+
+                        processed_articles += 1
+                        logging.info(f"Artikel {url} wurde verarbeitet und aktualisiert.")
 
                     # Speichere den Fortschritt nach jedem Artikel
                     save_progress(article['_id'])
@@ -402,121 +431,15 @@ def process_articles():
     except Exception as e:
         logging.error(f"Fehler beim Starten der MongoDB-Sitzung: {e}")
 
-    save_daily_summary(list(all_vocabulary_today['new_phrases']), list(all_vocabulary_today['existing_phrases']), start_date)
+    # Speichere die tägliche Zusammenfassung
+    save_daily_summary(
+        list(all_vocabulary_today['new_phrases']),
+        list(all_vocabulary_today['existing_phrases']),
+        start_date
+    )
 
-# Funktion zum erneuten Verarbeiten bereits gespeicherter Artikel
-def re_crawl_stored_articles():
-    """
-    Crawlt alle Artikel in 'processed_collection' erneut, um Inhalte und Kommentare zu aktualisieren,
-    einschließlich Änderungen im Text und neuen Kommentaren, unter Verwendung einer MongoDB-Session.
-    """
-    all_vocabulary_today = {
-        'new_phrases': set(),  # Neue Wörter/Phrasen, die heute zum ersten Mal gesehen wurden
-        'existing_phrases': set()  # Bereits bekannte Wörter/Phrasen, die erneut aufgetreten sind
-    }
 
-    reference_file_path = os.path.join(project_directory, 'output3.txt')
-    reference_words = read_reference_file(reference_file_path)
-
-    # Starte eine MongoDB-Session
-    with client.start_session() as session:
-        try:
-            # Verwende die Session, um den Cursor zu erstellen
-            stored_articles = processed_collection.find({}, no_cursor_timeout=True, session=session).batch_size(100)
-
-            for article in stored_articles:
-                url = article['url']
-                full_text = article['full_text']  # Der aktuelle Text in der processed_collection
-                stored_comments = set(article.get('comments', []))  # Bereits gespeicherte Kommentare
-
-                # Lade den aktualisierten Artikel und Kommentare aus der Rohdaten-Sammlung
-                raw_article = collection.find_one({'url': url}, session=session)  # Session hinzufügen
-                if not raw_article:
-                    logging.warning(f"Rohdaten-Artikel nicht gefunden: {url}")
-                    continue
-
-                updated_text = raw_article['full_text']  # Aktualisierter Text aus der Rohdaten-Sammlung
-                raw_comments = set(raw_article.get('comments', []))  # Aktualisierte Kommentare aus der Rohdaten-Sammlung
-
-                # Prüfen, ob der Text des Artikels sich geändert hat
-                text_changed = full_text != updated_text
-                if text_changed:
-                    logging.info(f"Textänderung erkannt für Artikel {url}")
-
-                # Identifiziere neue Kommentare (Kommentare, die in der processed_collection fehlen)
-                new_comments = list(raw_comments - stored_comments)
-
-                # Sprache des aktualisierten Textes überprüfen
-                language = detect_language(updated_text)
-
-                # Extrahiere Phrasen aus dem aktualisierten Artikeltext und neuen Kommentaren
-                filtered_article_phrases = extract_keywords_and_phrases(updated_text, language, n=2)
-                filtered_comment_phrases = [extract_keywords_and_phrases(comment, language, n=2) for comment in new_comments]
-
-                # Falls der Artikel nur Stopwords oder keinen Text enthält
-                if not filtered_article_phrases and not any(filtered_comment_phrases):
-                    logging.warning(f"Artikel {article['url']} enthält nur Stopwords oder ist leer. Überspringe.")
-                    continue  # Überspringe diesen Artikel und gehe zum nächsten
-
-                # Füge die WordNet-Überprüfung für englische Wörter hinzu
-                new_article_phrases = []
-                new_comment_phrases = []
-
-                # Überprüfe Artikel-Phrasen mit WordNet für englische Wörter
-                for phrase in filtered_article_phrases:
-                    if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
-                        continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
-                    new_article_phrases.append(phrase)
-
-                # Überprüfe Kommentar-Phrasen mit WordNet für englische Wörter
-                for comment_phrase_list in filtered_comment_phrases:
-                    for phrase in comment_phrase_list:
-                        if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
-                            continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
-                        new_comment_phrases.append(phrase)
-
-                # Vergleiche die übriggebliebenen Phrasen mit der Referenzdatei
-                new_article_phrases = compare_phrases_with_reference(new_article_phrases, reference_words)
-                new_comment_phrases = compare_phrases_with_reference(new_comment_phrases, reference_words)
-
-                # Aktualisiere das Vokabular für neue Phrasen im Artikeltext
-                for phrase in new_article_phrases:
-                    update_vocabulary(phrase, start_date, 'article', all_vocabulary_today)
-
-                # Aktualisiere das Vokabular für neue Phrasen in Kommentaren
-                for phrase in new_comment_phrases:
-                    update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)
-
-                # Speichere Aktualisierungen in der Datenbank, falls Änderungen vorhanden sind
-                update_fields = {'last_processed': start_date}
-                if text_changed:  # Falls der Text aktualisiert wurde
-                    update_fields['full_text'] = updated_text
-                if new_article_phrases:
-                    update_fields['new_article_phrases'] = new_article_phrases
-                if new_comment_phrases:
-                    update_fields['new_comment_phrases'] = new_comment_phrases
-                if new_comments:
-                    update_fields['comments'] = {'$addToSet': {'$each': new_comments}}
-
-                # Nur Aktualisierung, wenn Änderungen vorhanden sind
-                if len(update_fields) > 1:  # mehr als nur 'last_processed'
-                    processed_collection.update_one({'url': url}, {'$set': update_fields}, session=session)  # Session hinzufügen
-                    logging.info(f"Artikel aktualisiert: {url}")
-                else:
-                    logging.info(f"Keine Änderungen für Artikel {url}")
-
-            stored_articles.close()  # Cursor schließen
-
-        except Exception as e:
-            logging.error(f"Fehler beim erneuten Verarbeiten der gespeicherten Artikel: {e}")
-
-    # Tägliche Zusammenfassung speichern
-    save_daily_summary(list(all_vocabulary_today['new_phrases']), list(all_vocabulary_today['existing_phrases']), start_date)
 
 
 if __name__ == '__main__':
-    # Hauptprozess für das reguläre Verarbeiten neuer Artikel
     process_articles()
-
-    # Re-Crawling für bereits gespeicherte Artikel
-    re_crawl_stored_articles()

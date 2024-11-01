@@ -24,8 +24,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['indyMedia']
+collection = db['schweizerZeit']
 crawled_urls_collection = db['crawled_urlsIM']  # Sammlung für gecrawlte URLs
+CRAWL_START_DATE = datetime(2024, 10, 30)
+CRAWL_END_DATE = datetime(2024, 10, 31)
 # Funktion zum Speichern der gecrawlten URL
 def save_crawled_url(url):
     """
@@ -347,7 +349,7 @@ def get_all_sitemap_links(base_url):
         f"{base_url}/sitemap.xml",
         f"{base_url}/wp-sitemap.xml",
         f"{base_url}/sitemap_index.xml"
-        f"{base_url}/sitemap-1.xml"
+        #f"{base_url}/sitemap-1.xml"
     ]
 
     sitemap_links = []
@@ -369,7 +371,7 @@ def get_all_sitemap_links(base_url):
     filtered_sitemap_links = [
         link for link in sitemap_links
         if 'posts-post' in link or 'post-sitemap' in link
-           #or 'sitemap' in link
+#or 'sitemap' in link
     ]
 
     # Dedupliziere die Sitemap-Links, damit jeder Link nur einmal verarbeitet wird
@@ -388,24 +390,35 @@ def normalize_domain_with_exception(url):
 # Funktion zum Abrufen der Artikel-URLs von der Sitemap
 def get_urls_from_sitemap(sitemap_url):
     try:
-        response = requests.get(sitemap_url, timeout=10)
+        response = requests.get(sitemap_url, timeout=5)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'xml')
 
-        # Finde alle Artikel-URLs in den Sitemaps
-        urls = [url_loc.text for url_loc in soup.find_all('loc')]
+        # Finde alle <url>-Tags, die URLs und eventuell <lastmod>-Daten enthalten
+        urls = []
+        for url_tag in soup.find_all('url'):
+            loc = url_tag.find('loc').text  # Die URL des Artikels
+            lastmod_tag = url_tag.find('lastmod')  # Das letzte Änderungsdatum
 
-        # Normalisiere die URLs nur für 'antifainfoblatt'
-        normalized_urls = [normalize_domain_with_exception(url) for url in urls]
+            # Filtere URLs nach dem Start- und Enddatum, falls das `lastmod`-Tag vorhanden ist
+            if lastmod_tag:
+                lastmod = datetime.strptime(lastmod_tag.text.split("T")[0], "%Y-%m-%d")
+                if not (CRAWL_START_DATE <= lastmod <= CRAWL_END_DATE):
+                    logging.info(f"URL übersprungen (außerhalb des Zeitfensters): {loc} (lastmod: {lastmod})")
+                    continue  # Überspringe URLs außerhalb des festgelegten Datumsbereichs
+
+            # Normalisiere die URL nur für bestimmte Domains
+            loc = normalize_domain_with_exception(loc)
+            urls.append(loc)
 
         # Liste der Dateitypen, die wir ausschließen möchten
-        excluded_file_types = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.pdf', '.doc', '.docx', '.mp3', '.mp4',
-                               '.webp']
+        excluded_file_types = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.pdf', '.doc', '.docx', '.mp3', '.mp4', '.webp']
 
-        # Filtern: Nur URLs zulassen, die nicht auf Dateien wie Bilder, Videos oder Dokumente verweisen
+        # Filtern: Nur URLs zulassen, die nicht auf ausgeschlossene Dateitypen verweisen
         filtered_urls = [url for url in urls if not any(url.lower().endswith(ext) for ext in excluded_file_types)]
 
         return filtered_urls
+
     except requests.RequestException as e:
         logging.error(f"Sitemap konnte nicht abgerufen werden: {sitemap_url} aufgrund von {e}")
         return []
@@ -661,7 +674,7 @@ def main():
         time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
 
     #Optional: Crawle schnell bestimmte URLs, um schnell zu sein, weil sonst Re-Crawling unten sehr lange dauert
-    #target_url = "https://sezession.de/69742/noch-einmal-menschenpark-und-hundert-stuehle"
+    #target_url = "https://sezession.de/69738/ohne-kickl-regierungsbildung-in-oesterreich"
     #re_crawl_single_url(target_url)
 
     # 4. Optional: Crawle alle bereits gespeicherten URLs erneut

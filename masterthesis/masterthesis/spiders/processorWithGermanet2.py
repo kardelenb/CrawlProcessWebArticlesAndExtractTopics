@@ -17,19 +17,20 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['sezession0510raw']
-processed_collection = db['sezessionWithoutGermanetProcessed']
-vocabulary_collection = db['vocabularySezessionWithoutGN']
-daily_summary_collection = db['daily_sezessionWithoutGN']
+collection = db['schweizerZeit']
+processed_collection = db['schweizerZeitProcessed']
+vocabulary_collection = db['schweizerZeitVocab']
+daily_summary_collection = db['SchweizerZeitDaily']
+
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['S2process_progress']
+progress_collection = db['SZprocess_progress']
 
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
 #start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-10-20'
+start_date = '2024-10-31'
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -60,6 +61,9 @@ nltk.download('wordnet')
 german_stop_words = set(stopwords.words('german'))
 english_stop_words = set(stopwords.words('english'))
 
+# Lade GermaNet-Daten
+germanet_object = germanet.Germanet("/home/kardelenbilir/Downloads/GN_V180/GN_V180_XML")
+
 # Bestimme das aktuelle Verzeichnis, in dem das Skript ausgeführt wird
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -71,6 +75,14 @@ def read_reference_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         reference_words = [line.strip().lower() for line in f]
     return reference_words
+
+# Funktion, um zu prüfen, ob ein Wort in GermaNet ist, unabhängig von Groß-/Kleinschreibung
+def check_word_in_germanet_ignore_case(word):
+    # Erstelle eine Filterkonfiguration und ignoriere Groß- und Kleinschreibung
+    filterconfig = Filterconfig(word, ignore_case=True)
+    synsets = filterconfig.filter_synsets(germanet_object)
+
+    return len(synsets) > 0
 
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
@@ -122,7 +134,7 @@ def detect_language(text):
         return 'de'
     return 'en'
 
-# Vergleicht die extrahierten Wörter mit der Referenzdatei
+# Vergleicht die extrahierten Wörter mit der Referenzdatei und GermaNet
 def compare_phrases_with_reference(new_phrases, reference_words):
     reference_set = set(reference_words)
     updated_new_phrases = []
@@ -130,6 +142,23 @@ def compare_phrases_with_reference(new_phrases, reference_words):
     for phrase in new_phrases:
         words_in_phrase = phrase.lower().split()  # Zerlege die Phrase in einzelne Wörter und prüfe jedes Wort
         if not all(word in reference_set for word in words_in_phrase):
+            # Prüfe, ob das Wort in GermaNet ist (case-insensitive)
+            if not check_word_in_germanet_ignore_case(phrase):
+                updated_new_phrases.append(
+                    phrase)  # Nur hinzufügen, wenn es nicht in der Referenzdatei und nicht in GermaNet ist
+
+    return updated_new_phrases
+
+# Vergleicht die extrahierten Wörter mit der Referenzdatei und GermaNet
+def compare_phrases_with_reference(new_phrases, reference_words):
+    reference_set = set(reference_words)
+    updated_new_phrases = []
+
+    for phrase in new_phrases:
+        words_in_phrase = phrase.lower().split()  # Zerlege die Phrase in einzelne Wörter und prüfe jedes Wort
+        if not all(word in reference_set for word in words_in_phrase):
+            # Prüfe, ob das Wort in GermaNet ist (case-insensitive)
+            if not check_word_in_germanet_ignore_case(phrase):
                 updated_new_phrases.append(
                     phrase)  # Nur hinzufügen, wenn es nicht in der Referenzdatei und nicht in GermaNet ist
 
@@ -241,7 +270,7 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
 
     # Füge dies hinzu: Speichere das Vokabelwachstum separat
     vocabulary_growth_collection = db[
-        'SS2vocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+        'SZvocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {
@@ -404,119 +433,8 @@ def process_articles():
 
     save_daily_summary(list(all_vocabulary_today['new_phrases']), list(all_vocabulary_today['existing_phrases']), start_date)
 
-# Funktion zum erneuten Verarbeiten bereits gespeicherter Artikel
-def re_crawl_stored_articles():
-    """
-    Crawlt alle Artikel in 'processed_collection' erneut, um Inhalte und Kommentare zu aktualisieren,
-    einschließlich Änderungen im Text und neuen Kommentaren, unter Verwendung einer MongoDB-Session.
-    """
-    all_vocabulary_today = {
-        'new_phrases': set(),  # Neue Wörter/Phrasen, die heute zum ersten Mal gesehen wurden
-        'existing_phrases': set()  # Bereits bekannte Wörter/Phrasen, die erneut aufgetreten sind
-    }
 
-    reference_file_path = os.path.join(project_directory, 'output3.txt')
-    reference_words = read_reference_file(reference_file_path)
-
-    # Starte eine MongoDB-Session
-    with client.start_session() as session:
-        try:
-            # Verwende die Session, um den Cursor zu erstellen
-            stored_articles = processed_collection.find({}, no_cursor_timeout=True, session=session).batch_size(100)
-
-            for article in stored_articles:
-                url = article['url']
-                full_text = article['full_text']  # Der aktuelle Text in der processed_collection
-                stored_comments = set(article.get('comments', []))  # Bereits gespeicherte Kommentare
-
-                # Lade den aktualisierten Artikel und Kommentare aus der Rohdaten-Sammlung
-                raw_article = collection.find_one({'url': url}, session=session)  # Session hinzufügen
-                if not raw_article:
-                    logging.warning(f"Rohdaten-Artikel nicht gefunden: {url}")
-                    continue
-
-                updated_text = raw_article['full_text']  # Aktualisierter Text aus der Rohdaten-Sammlung
-                raw_comments = set(raw_article.get('comments', []))  # Aktualisierte Kommentare aus der Rohdaten-Sammlung
-
-                # Prüfen, ob der Text des Artikels sich geändert hat
-                text_changed = full_text != updated_text
-                if text_changed:
-                    logging.info(f"Textänderung erkannt für Artikel {url}")
-
-                # Identifiziere neue Kommentare (Kommentare, die in der processed_collection fehlen)
-                new_comments = list(raw_comments - stored_comments)
-
-                # Sprache des aktualisierten Textes überprüfen
-                language = detect_language(updated_text)
-
-                # Extrahiere Phrasen aus dem aktualisierten Artikeltext und neuen Kommentaren
-                filtered_article_phrases = extract_keywords_and_phrases(updated_text, language, n=2)
-                filtered_comment_phrases = [extract_keywords_and_phrases(comment, language, n=2) for comment in new_comments]
-
-                # Falls der Artikel nur Stopwords oder keinen Text enthält
-                if not filtered_article_phrases and not any(filtered_comment_phrases):
-                    logging.warning(f"Artikel {article['url']} enthält nur Stopwords oder ist leer. Überspringe.")
-                    continue  # Überspringe diesen Artikel und gehe zum nächsten
-
-                # Füge die WordNet-Überprüfung für englische Wörter hinzu
-                new_article_phrases = []
-                new_comment_phrases = []
-
-                # Überprüfe Artikel-Phrasen mit WordNet für englische Wörter
-                for phrase in filtered_article_phrases:
-                    if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
-                        continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
-                    new_article_phrases.append(phrase)
-
-                # Überprüfe Kommentar-Phrasen mit WordNet für englische Wörter
-                for comment_phrase_list in filtered_comment_phrases:
-                    for phrase in comment_phrase_list:
-                        if language == 'en' and any(wordnet.synsets(word) for word in phrase.split()):
-                            continue  # Überspringe englische Wörter/Phrasen, die in WordNet definiert sind
-                        new_comment_phrases.append(phrase)
-
-                # Vergleiche die übriggebliebenen Phrasen mit der Referenzdatei
-                new_article_phrases = compare_phrases_with_reference(new_article_phrases, reference_words)
-                new_comment_phrases = compare_phrases_with_reference(new_comment_phrases, reference_words)
-
-                # Aktualisiere das Vokabular für neue Phrasen im Artikeltext
-                for phrase in new_article_phrases:
-                    update_vocabulary(phrase, start_date, 'article', all_vocabulary_today)
-
-                # Aktualisiere das Vokabular für neue Phrasen in Kommentaren
-                for phrase in new_comment_phrases:
-                    update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)
-
-                # Speichere Aktualisierungen in der Datenbank, falls Änderungen vorhanden sind
-                update_fields = {'last_processed': start_date}
-                if text_changed:  # Falls der Text aktualisiert wurde
-                    update_fields['full_text'] = updated_text
-                if new_article_phrases:
-                    update_fields['new_article_phrases'] = new_article_phrases
-                if new_comment_phrases:
-                    update_fields['new_comment_phrases'] = new_comment_phrases
-                if new_comments:
-                    update_fields['comments'] = {'$addToSet': {'$each': new_comments}}
-
-                # Nur Aktualisierung, wenn Änderungen vorhanden sind
-                if len(update_fields) > 1:  # mehr als nur 'last_processed'
-                    processed_collection.update_one({'url': url}, {'$set': update_fields}, session=session)  # Session hinzufügen
-                    logging.info(f"Artikel aktualisiert: {url}")
-                else:
-                    logging.info(f"Keine Änderungen für Artikel {url}")
-
-            stored_articles.close()  # Cursor schließen
-
-        except Exception as e:
-            logging.error(f"Fehler beim erneuten Verarbeiten der gespeicherten Artikel: {e}")
-
-    # Tägliche Zusammenfassung speichern
-    save_daily_summary(list(all_vocabulary_today['new_phrases']), list(all_vocabulary_today['existing_phrases']), start_date)
 
 
 if __name__ == '__main__':
-    # Hauptprozess für das reguläre Verarbeiten neuer Artikel
     process_articles()
-
-    # Re-Crawling für bereits gespeicherte Artikel
-    re_crawl_stored_articles()
