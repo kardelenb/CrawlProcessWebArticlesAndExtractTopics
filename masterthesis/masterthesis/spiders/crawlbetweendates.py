@@ -24,10 +24,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['schweizerZeit']
+collection = db['test0311']
 crawled_urls_collection = db['crawled_urlsIM']  # Sammlung für gecrawlte URLs
-CRAWL_START_DATE = datetime(2024, 10, 30)
-CRAWL_END_DATE = datetime(2024, 10, 31)
+CRAWL_START_DATE = datetime(2024, 10, 26)
+CRAWL_END_DATE = datetime(2024, 11, 2)
 # Funktion zum Speichern der gecrawlten URL
 def save_crawled_url(url):
     """
