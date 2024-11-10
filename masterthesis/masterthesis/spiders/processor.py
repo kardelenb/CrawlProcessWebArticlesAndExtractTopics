@@ -1,3 +1,4 @@
+from collections import Counter
 import spacy
 from germanetpy import germanet
 from germanetpy.filterconfig import Filterconfig
@@ -17,19 +18,20 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['test']
-processed_collection = db['Antifaprocessed']
-vocabulary_collection = db['AntifaVocab']
-daily_summary_collection = db['AntifaDaily']
+collection = db['test2710']
+processed_collection = db['test0311_processed']
+vocabulary_collection = db['test0311_vocabulary']
+daily_summary_collection = db['test0311_daily_summary']
+
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['AAprocess_progress']
+progress_collection = db['test0311_progress']
 
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
 #start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-10-14'
+start_date = '2024-10-02'
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -66,6 +68,25 @@ current_directory = os.path.dirname(os.path.abspath(__file__))
 # Gehe drei Verzeichnisebenen nach oben, um das Verzeichnis 'MASterarbeit' zu erreichen
 project_directory = os.path.abspath(os.path.join(current_directory, '..', '..', '..'))
 
+# Definiere ein Muster, um mögliche kurze Namen und Kommentare zu erkennen
+name_pattern = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?$")
+WORD_COUNT_THRESHOLD = 4
+
+def is_short_comment(comment):
+    """
+    Prüft, ob ein Kommentar kurz ist und möglicherweise wie ein Name aussieht.
+    Filtert alle Kommentare, die dem Muster entsprechen oder weniger als die Wortschwelle haben.
+    """
+    # Überprüfe, ob der Kommentar dem Namensmuster entspricht oder weniger als die Wortanzahl-Schwelle hat
+    return bool(name_pattern.match(comment.strip())) or len(comment.split()) < WORD_COUNT_THRESHOLD
+
+def filter_comments(comments):
+    """
+    Filtert alle kurzen oder namenartigen Kommentare aus der Liste der Kommentare.
+    """
+    filtered_comments = [comment for comment in comments if not is_short_comment(comment)]
+    return filtered_comments
+
 # Lese die Referenzdatei ein (bereinigte Datei)
 def read_reference_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -75,10 +96,10 @@ def read_reference_file(file_path):
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
     phrases = []
-    only_letters = re.compile(r'^[^\W\d_]+$')
+    only_letters_or_hyphen = re.compile(r'^[A-Za-zäöüÄÖÜß-]+$')  # Erlaubt nur Buchstaben und Bindestriche
 
     # Hier werden nur Tokens betrachtet, die keine Stopwords sind und alphabetisch sind
-    tokens = [token for token in doc if not token.is_stop and only_letters.match(token.text)]
+    tokens = [token for token in doc if not token.is_stop and only_letters_or_hyphen.match(token.text)]
 
     # Sliding-Window über die Token-Liste, um N-Gramme zu erstellen
     for i in range(len(tokens) - n + 1):
@@ -107,7 +128,7 @@ def extract_keywords_and_phrases(text, language, pos_tags=['NOUN', 'ADJ', 'VERB'
         for token in doc
         if token.pos_ in pos_tags
            and not token.is_stop
-           and re.match(r'^[^\W\d_]+$', token.text)  # Nur alphabetische Wörter
+           and re.match(r'^[A-Za-zäöüÄÖÜß-]+$', token.text)  # Nur alphabetische Zeichen und Bindestriche
     ]
 
     # Mehrwortphrasen (z.B. N-Gramme) extrahieren, bei denen das zweite Wort ein Nomen ist
@@ -241,7 +262,7 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
 
     # Füge dies hinzu: Speichere das Vokabelwachstum separat
     vocabulary_growth_collection = db[
-        'AAvocabulary_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+        'test0311_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {
@@ -265,10 +286,30 @@ def get_last_processed_id():
     progress = progress_collection.find_one()
     return progress['last_processed_id'] if progress else None
 
+# Funktion zum Aufteilen in Sätze
+def split_into_sentences(text):
+    return re.split(r'(?<=[.!?]) +', text)
 
+# Erstellen eines Textprofils und Ermittlung der generischen Sätze
+def create_generic_sentence_list(threshold=5):
+    sentence_counter = Counter()
+    for article in collection.find({}, {"full_text": 1}):
+        sentences = split_into_sentences(article['full_text'])
+        sentence_counter.update(sentences)
+    # Wähle generische Sätze aus, die in mehreren Artikeln vorkommen
+    return {sentence for sentence, count in sentence_counter.items() if count >= threshold}
 
 # Verarbeitet Artikel
 def process_articles():
+    # Generische Sätze vorab ermitteln
+    generic_sentences = create_generic_sentence_list()
+    logging.info(f"Generische Sätze identifiziert: {len(generic_sentences)}")
+
+    # Ausgabe der generischen Sätze im Log
+    logging.info("Liste der generischen Sätze:")
+    for sentence in generic_sentences:
+        logging.info(f"- {sentence}")
+
     reference_file_path = os.path.join(project_directory, 'output3.txt')
     reference_words = read_reference_file(reference_file_path)
 
@@ -295,42 +336,37 @@ def process_articles():
                     full_text = article['full_text']
                     comments = article.get('comments', [])  # Hole die Kommentare oder setze sie als leere Liste
 
-                    # Überprüfe, ob der Artikel bereits verarbeitet wurde
-                    if article_already_processed(url):
-                        logging.info(f"Artikel {url} wurde bereits verarbeitet. Überspringe.")
-                        # Wenn der Artikel bereits verarbeitet wurde, prüfe auf neue Kommentare
-                        stored_comments = get_stored_comments(url)
-                        new_comments = [comment for comment in comments if comment not in stored_comments]
+                    sentences = split_into_sentences(full_text)
+                    filtered_text = " ".join(sentence for sentence in sentences if sentence not in generic_sentences)
 
-                        # Wenn es neue Kommentare gibt, füge sie hinzu
-                        if new_comments:
-                            processed_collection.update_one(
-                                {'url': url},
-                                {'$addToSet': {'comments': {'$each': new_comments}}}
-                            )
-                            logging.info(f"Neue Kommentare hinzugefügt: {len(new_comments)} für Artikel {url}")
-                        continue  # Überspringe den Rest, da der Artikel bereits verarbeitet wurde
-
-                        # Überprüfe, ob der Artikeltext leer ist
-                    if not full_text:
+                    # Überprüfe, ob der Artikeltext leer ist
+                    if not filtered_text:
                         logging.warning(f"Artikel {url} enthält keinen Text. Überspringe.")
                         continue  # Überspringe Artikel mit leerem Text
 
-                    language = detect_language(full_text)
+                    # Überprüfe, ob der Artikel bereits verarbeitet wurde
+                    if article_already_processed(url):
+                        logging.info(f"Artikel {url} wurde bereits verarbeitet. Überspringe.")
+                        continue
+
+
+                    language = detect_language(filtered_text)
 
                     # Extrahiere Phrasen aus dem Artikeltext
-                    filtered_article_phrases = extract_keywords_and_phrases(full_text, language, n=2)
+                    filtered_article_phrases = extract_keywords_and_phrases(filtered_text, language, n=2)
 
                     # Extrahiere Phrasen aus den Kommentaren (falls vorhanden)
                     filtered_comment_phrases = []
                     if comments:
-                        for comment in comments:
+                        filtered_comments = filter_comments(comments)  # Filtere namenähnliche Kommentare
+                        for comment in filtered_comments:
                             filtered_comment_phrases.extend(extract_keywords_and_phrases(comment, language, n=2))
 
                     # Falls der Artikel nur Stopwords oder keinen Text enthält
                     if not filtered_article_phrases and not filtered_comment_phrases:
                         logging.warning(f"Artikel {article['url']} enthält nur Stopwords oder ist leer. Überspringe.")
                         continue
+
 
                     # Füge die WordNet-Überprüfung für englische Wörter hinzu
                     new_article_phrases = []
@@ -358,7 +394,7 @@ def process_articles():
                         processed_collection.insert_one({
                             'title': article['title'],
                             'url': article['url'],
-                            'full_text': full_text,
+                            'full_text': filtered_text,
                             'new_article_phrases': [],  # Keine neuen Phrasen
                             'new_comment_phrases': [],  # Keine neuen Phrasen
                             'first_processed': start_date,
@@ -379,7 +415,7 @@ def process_articles():
                     processed_collection.insert_one({
                         'title': article['title'],
                         'url': article['url'],
-                        'full_text': full_text,
+                        'full_text': filtered_text,
                         'new_article_phrases': new_article_phrases,  # Neue Phrasen aus dem Artikeltext
                         'new_comment_phrases': new_comment_phrases,  # Neue Phrasen aus den Kommentaren (falls vorhanden)
                         'first_processed': start_date,
