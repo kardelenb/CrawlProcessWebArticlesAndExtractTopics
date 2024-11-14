@@ -19,7 +19,7 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['test2710']
+collection = db['test0311']
 processed_collection = db['test0311_processed']
 vocabulary_collection = db['test0311_vocabulary']
 daily_summary_collection = db['test0311_daily_summary']
@@ -28,7 +28,8 @@ progress_collection = db['test0311_progress']
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-start_date = datetime.now().strftime('%Y-%m-%d')
+#start_date = datetime.now().strftime('%Y-%m-%d')
+start_date = '2024-11-18'
 
 # Lade deutsche und englische spaCy-Modelle
 nlp_de = spacy.load('de_core_news_sm')
@@ -43,9 +44,10 @@ english_stop_words = set(stopwords.words('english'))
 project_directory = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 
 
-# Hilfsfunktionen zur Checksum-Berechnung
-def generate_checksum(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+# Diese Methode kombiniert den Artikeltext und die Kommentare und erzeugt daraus eine Checksumme.
+def generate_static_checksum(content, comments):
+    combined_content = content + " ".join(comments)  # Kombiniert den Artikeltext und die Kommentare
+    return hashlib.sha256(combined_content.encode('utf-8')).hexdigest()
 
 
 def get_new_content(old_text, new_text):
@@ -284,34 +286,44 @@ def process_articles():
                         full_text = article['full_text']
                         comments = article.get('comments', [])
 
-                        sentences = split_into_sentences(full_text)
-                        filtered_text = " ".join(
-                            sentence for sentence in sentences if sentence not in generic_sentences)
-
+                        # Prüfe, ob der Artikel bereits in 'processed_collection' existiert
                         processed_article = processed_collection.find_one({'url': url})
-                        new_article_content = filtered_text
-                        new_comments = comments
-
-                        # Überprüfe, ob Artikel oder Kommentare geändert wurden
                         if processed_article:
-                            old_article_checksum = processed_article.get('article_checksum')
-                            new_article_checksum = generate_checksum(full_text)
+                            old_static_checksum = processed_article.get('static_checksum')
+                            new_static_checksum = generate_static_checksum(full_text, comments)
 
-                            if old_article_checksum == new_article_checksum:
+                            # Wenn die Checksumme gleich ist, gab es keine Änderungen am Artikel
+                            if old_static_checksum == new_static_checksum:
                                 logging.info(f"Artikel unverändert: {url}")
-                                continue  # Überspringe, wenn keine Änderungen im Artikel
+                                continue  # Überspringen, wenn keine Änderungen
 
-                            new_article_content = get_new_content(processed_article.get('full_text', ''), full_text)
+                            # Nur den neuen Inhalt seit der letzten Verarbeitung berücksichtigen
+                            old_text = processed_article.get('full_text', '')
+                            new_article_content = get_new_content(old_text, full_text)
                             new_comments = list(set(comments) - set(processed_article.get('comments', [])))
 
-                            # Falls keine neuen Inhalte in Artikel und Kommentare
+                            # Falls keine neuen Inhalte oder Kommentare vorhanden sind, überspringen
                             if not new_article_content and not new_comments:
                                 logging.info(f"Keine neuen Inhalte in Artikel: {url}")
                                 continue
 
-                        # Verarbeite den neuen Textinhalt des Artikels
-                        language = detect_language(new_article_content)
-                        filtered_article_phrases = extract_keywords_and_phrases(new_article_content, language, n=2)
+                            # Filtere nur die neuen Inhalte durch generische Sätze
+                            new_sentences = split_into_sentences(new_article_content)
+                            new_filtered_text = " ".join(
+                                sentence for sentence in new_sentences if sentence not in generic_sentences
+                            )
+                        else:
+                            # Für neue Artikel den gesamten Inhalt filtern und verarbeiten
+                            sentences = split_into_sentences(full_text)
+                            new_filtered_text = " ".join(
+                                sentence for sentence in sentences if sentence not in generic_sentences
+                            )
+                            new_article_content = new_filtered_text
+                            new_comments = comments
+
+                        # Verarbeite nur den gefilterten neuen Inhalt des Artikels
+                        language = detect_language(new_filtered_text)
+                        filtered_article_phrases = extract_keywords_and_phrases(new_filtered_text, language, n=2)
 
                         # Verarbeite die neuen Kommentare
                         filtered_comments = filter_comments(new_comments)
@@ -333,25 +345,37 @@ def process_articles():
                         new_article_phrases = compare_phrases_with_reference(new_article_phrases, reference_words)
                         new_comment_phrases = compare_phrases_with_reference(new_comment_phrases, reference_words)
 
-                        # Update das Vokabular
-                        for phrase in new_article_phrases:
+                        # Bestimme nur tatsächlich neue Phrasen
+                        previous_article_phrases = set(
+                            processed_article.get('new_article_phrases', [])) if processed_article else set()
+                        previous_comment_phrases = set(
+                            processed_article.get('new_comment_phrases', [])) if processed_article else set()
+
+                        unique_new_article_phrases = set(new_article_phrases) - previous_article_phrases
+                        unique_new_comment_phrases = set(new_comment_phrases) - previous_comment_phrases
+
+                        # Update das Vokabular und berücksichtige nur wirklich neue Phrasen für die Tageszusammenfassung
+                        for phrase in unique_new_article_phrases:
                             update_vocabulary(phrase, start_date, 'article', all_vocabulary_today)
-                        for phrase in new_comment_phrases:
+                        for phrase in unique_new_comment_phrases:
                             update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)
 
-                        # Aktualisiere die Datenbank mit neuen Checksummen und Inhalten
+                        # Speichere den neuen gefilterten Text und die vollständigen Kommentare
+                        updated_full_text = old_text + " " + new_filtered_text if processed_article else new_filtered_text
+
+                        # Aktualisiere die Datenbank mit den vollständigen Daten und der neuen Checksumme
                         processed_collection.update_one(
                             {'url': url},
                             {'$set': {
                                 'title': article['title'],
                                 'url': url,
-                                'full_text': full_text,
-                                'comments': comments,
-                                'new_article_phrases': new_article_phrases,
-                                'new_comment_phrases': new_comment_phrases,
-                                'article_checksum': generate_checksum(full_text),
-                                'comments_checksum': generate_checksum(" ".join(comments)),
-                                'first_processed': processed_article.get('first_processed', start_date),
+                                'full_text': updated_full_text,  # Speichere den gesamten gefilterten Text
+                                'comments': comments,  # Speichere die vollständigen Kommentare
+                                'new_article_phrases': list(previous_article_phrases | unique_new_article_phrases),
+                                'new_comment_phrases': list(previous_comment_phrases | unique_new_comment_phrases),
+                                'static_checksum': new_static_checksum,
+                                'first_processed': start_date if not processed_article else processed_article[
+                                    'first_processed'],
                                 'last_processed': start_date
                             }},
                             upsert=True
@@ -369,8 +393,9 @@ def process_articles():
             finally:
                 cursor.close()
 
-        save_daily_summary(list(all_vocabulary_today['new_phrases']), list(all_vocabulary_today['existing_phrases']),
-                           start_date)
+            save_daily_summary(list(all_vocabulary_today['new_phrases']),
+                               list(all_vocabulary_today['existing_phrases']),
+                               start_date)
 
     except Exception as e:
         logging.error(f"Fehler in der Hauptverarbeitungsfunktion: {e}")
