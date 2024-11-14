@@ -25,17 +25,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
 collection = db['indyMedia']
-crawled_urls_collection = db['crawled_urlsIM']  # Sammlung für gecrawlte URLs
-# Funktion zum Speichern der gecrawlten URL
-def save_crawled_url(url):
-    """
-    Speichert die URL in der MongoDB, nachdem sie erfolgreich gecrawlt wurde.
-    """
-    try:
-        crawled_urls_collection.insert_one({'url': url})
-        logging.info(f"URL gespeichert: {url}")
-    except Exception as e:
-        logging.error(f"Fehler beim Speichern der URL {url}: {e}")
 
 def crawl(initial_url):
     def create_webdriver():
