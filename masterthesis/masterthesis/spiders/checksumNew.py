@@ -29,7 +29,7 @@ processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
 #start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-11-18'
+start_date = '2024-11-23'
 
 # Lade deutsche und englische spaCy-Modelle
 nlp_de = spacy.load('de_core_news_sm')
@@ -267,7 +267,7 @@ def process_articles():
         for sentence in generic_sentences:
             logging.info(f"- {sentence}")
 
-        reference_file_path = os.path.join(project_directory, 'output3.txt')
+        reference_file_path = os.path.join(project_directory, 'wortschatzLeipzig.txt')
         reference_words = read_reference_file(reference_file_path)
 
         all_vocabulary_today = {
@@ -286,11 +286,18 @@ def process_articles():
                         full_text = article['full_text']
                         comments = article.get('comments', [])
 
+                        # Skip articles with neither full_text nor comments
+                        if not full_text and not comments:
+                            logging.warning(f"Artikel {url} enthält weder Text noch Kommentare. Überspringe.")
+                            continue
+
+                        # Berechne die neue statische Checksumme
+                        new_static_checksum = generate_static_checksum(full_text, comments)
+
                         # Prüfe, ob der Artikel bereits in 'processed_collection' existiert
                         processed_article = processed_collection.find_one({'url': url})
                         if processed_article:
                             old_static_checksum = processed_article.get('static_checksum')
-                            new_static_checksum = generate_static_checksum(full_text, comments)
 
                             # Wenn die Checksumme gleich ist, gab es keine Änderungen am Artikel
                             if old_static_checksum == new_static_checksum:
@@ -360,8 +367,12 @@ def process_articles():
                         for phrase in unique_new_comment_phrases:
                             update_vocabulary(phrase, start_date, 'comment', all_vocabulary_today)
 
-                        # Speichere den neuen gefilterten Text und die vollständigen Kommentare
-                        updated_full_text = old_text + " " + new_filtered_text if processed_article else new_filtered_text
+                        # Bestimme den vollständigen Text, der gespeichert werden soll
+                        if processed_article:
+                            old_text = processed_article.get('full_text', '')
+                            updated_full_text = old_text + " " + new_article_content.strip()
+                        else:
+                            updated_full_text = full_text.strip()
 
                         # Aktualisiere die Datenbank mit den vollständigen Daten und der neuen Checksumme
                         processed_collection.update_one(
