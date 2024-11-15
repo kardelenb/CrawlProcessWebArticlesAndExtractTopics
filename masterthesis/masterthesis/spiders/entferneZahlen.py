@@ -1,4 +1,5 @@
-'''import re
+'''
+import re
 
 # Funktion, um Zahlen und Zahlen mit Kommas, Punkten oder Bindestrichen zu entfernen
 def remove_numbers_from_text(text):
@@ -40,6 +41,52 @@ input_file = 'C:/Users/karde/PycharmProjects/pythonProject/zusammengefasst5Files
 output_file = ''
 remove_numbers_from_file(input_file, output_file)
 '''
+
+import re
+
+'''
+import re
+
+def remove_leading_quotes(input_file, output_file):
+    # Regulärer Ausdruck für das typografische Anführungszeichen ‚ am Anfang von Wörtern
+    leading_quote_pattern = re.compile(r'‚(\w)')
+
+    with open(input_file, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+
+    with open(output_file, 'w', encoding='utf-8') as file:
+        for line in lines:
+            # Entfernen des typografischen Anführungszeichens ‚ vor Wörtern
+            cleaned_line = leading_quote_pattern.sub(r'\1', line)
+            file.write(cleaned_line)
+
+# Beispielaufruf
+input_file = 'C:/Users/karde/PycharmProjects/pythonProject/outputjk.txt'
+output_file = 'zusammengefasst.txt'
+remove_leading_quotes(input_file, output_file)'''
+
+import re
+
+def remove_numbers_and_words_with_numbers(input_file, output_file):
+    # Regulärer Ausdruck zum Erkennen von Zeilen, die nur Zahlen oder Wörter mit Zahlen enthalten
+    # Diese Zeilen werden entfernt
+    line_pattern = re.compile(r'^\s*\d+[\.,\d%]*\s*$|.*\d+.*')
+
+    with open(input_file, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+
+    with open(output_file, 'w', encoding='utf-8') as file:
+        for line in lines:
+            # Wenn die Zeile keine reinen Zahlen und keine Wörter mit Zahlen enthält, schreibe sie in die Ausgabedatei
+            if not line_pattern.match(line):
+                file.write(line)
+
+# Beispielaufruf
+input_file = '/home/kardelenbilir/Dokumente/Projekt/MasterArbeit/masterthesis/masterthesis/spiders/deu-news-2020_4.txt'
+output_file = 'deu-news-2020_5.txt'
+remove_numbers_and_words_with_numbers(input_file, output_file)
+
+
 '''
 import re
 
@@ -65,50 +112,57 @@ def clean_file(input_file, output_file):
 
 
 # Beispielaufruf
-input_file = 'C:/Users/karde/PycharmProjects/pythonProject/zusammengefasst5Files.txt'
-output_file = 'outputhgh.txt'
+input_file = '/home/kardelenbilir/Dokumente/Projekt/MasterArbeit/masterthesis/masterthesis/spiders/deu-news-2020_3.txt'
+output_file = 'deu-news-2020_4.txt'
 clean_file(input_file, output_file)
 '''
-import re
-
 '''
 import re
 
-def remove_leading_quotes(input_file, output_file):
-    # Regulärer Ausdruck für das typografische Anführungszeichen ‚ am Anfang von Wörtern
-    leading_quote_pattern = re.compile(r'‚(\w)')
+def clean_special_characters(input_file, output_file):
+    """
+    Entfernt typografische Anführungszeichen ‚ am Anfang von Wörtern und ähnliche Zeichen,
+    ohne Bindestriche oder andere Wortbestandteile zu löschen.
 
-    with open(input_file, 'r', encoding='utf-8') as file:
-        lines = file.readlines()
+    :param input_file: Pfad zur Eingabedatei.
+    :param output_file: Pfad zur Ausgabedatei.
+    """
+    # Regulärer Ausdruck: Entfernt ‚ am Anfang und ‚ oder ' am Ende eines Wortes
+    pattern = re.compile(r"(?<!\S)[‚‘“”]+|[‚‘“”]+(?!\S)")
 
-    with open(output_file, 'w', encoding='utf-8') as file:
-        for line in lines:
-            # Entfernen des typografischen Anführungszeichens ‚ vor Wörtern
-            cleaned_line = leading_quote_pattern.sub(r'\1', line)
-            file.write(cleaned_line)
+    with open(input_file, 'r', encoding='utf-8') as infile, open(output_file, 'w', encoding='utf-8') as outfile:
+        for line in infile:
+            # Entfernen der unerwünschten Zeichen
+            cleaned_line = pattern.sub('', line)
+            outfile.write(cleaned_line)
 
 # Beispielaufruf
-input_file = 'C:/Users/karde/PycharmProjects/pythonProject/outputjk.txt'
-output_file = 'output2.txt'
-remove_leading_quotes(input_file, output_file)'''
+input_file = '/home/kardelenbilir/Dokumente/Projekt/MasterArbeit/masterthesis/masterthesis/spiders/deu-news-2020_2.txt'
+output_file = 'deu-news-2020_3.txt'
+clean_special_characters(input_file, output_file)
+'''
 
 import re
 
-def remove_numbers_and_words_with_numbers(input_file, output_file):
-    # Regulärer Ausdruck zum Erkennen von Zeilen, die nur Zahlen oder Wörter mit Zahlen enthalten
-    # Diese Zeilen werden entfernt
-    line_pattern = re.compile(r'^\s*\d+[\.,\d%]*\s*$|.*\d+.*')
+def remove_trailing_character(input_file, output_file, char_to_remove):
+    """
+    Entfernt ein bestimmtes Zeichen am Ende von Wörtern in einer Datei.
 
-    with open(input_file, 'r', encoding='utf-8') as file:
-        lines = file.readlines()
+    :param input_file: Pfad zur Eingabedatei.
+    :param output_file: Pfad zur Ausgabedatei.
+    :param char_to_remove: Das Zeichen, das entfernt werden soll (z. B. â).
+    """
+    # Erstellen des regulären Ausdrucks, um das Zeichen am Ende der Wörter zu entfernen
+    pattern = re.compile(rf'{re.escape(char_to_remove)}\b')
 
-    with open(output_file, 'w', encoding='utf-8') as file:
-        for line in lines:
-            # Wenn die Zeile keine reinen Zahlen und keine Wörter mit Zahlen enthält, schreibe sie in die Ausgabedatei
-            if not line_pattern.match(line):
-                file.write(line)
+    with open(input_file, 'r', encoding='utf-8') as infile, open(output_file, 'w', encoding='utf-8') as outfile:
+        for line in infile:
+            # Entfernen des unerwünschten Zeichens
+            cleaned_line = pattern.sub('', line)
+            outfile.write(cleaned_line)
 
 # Beispielaufruf
-input_file = 'output2.txt'
-output_file = '../../../output3.txt'
-remove_numbers_and_words_with_numbers(input_file, output_file)
+input_file = '/home/kardelenbilir/Dokumente/Projekt/MasterArbeit/masterthesis/masterthesis/spiders/newwordsNew.txt'
+output_file = '../../../wortschatzLeipzig.txt'
+char_to_remove = 'â'  # Das zu entfernende Zeichen
+remove_trailing_character(input_file, output_file, char_to_remove)
