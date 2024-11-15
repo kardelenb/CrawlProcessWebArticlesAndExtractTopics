@@ -18,7 +18,7 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['test2710']
+collection = db['schweizerZeit']
 processed_collection = db['test0311_processed']
 vocabulary_collection = db['test0311_vocabulary']
 daily_summary_collection = db['test0311_daily_summary']
@@ -291,7 +291,7 @@ def split_into_sentences(text):
     return re.split(r'(?<=[.!?]) +', text)
 
 # Erstellen eines Textprofils und Ermittlung der generischen Sätze
-def create_generic_sentence_list(threshold=5):
+def create_generic_sentence_list(threshold=800):
     sentence_counter = Counter()
     for article in collection.find({}, {"full_text": 1}):
         sentences = split_into_sentences(article['full_text'])
@@ -310,7 +310,7 @@ def process_articles():
     for sentence in generic_sentences:
         logging.info(f"- {sentence}")
 
-    reference_file_path = os.path.join(project_directory, 'output3.txt')
+    reference_file_path = os.path.join(project_directory, 'wortschatzLeipzig.txt')
     reference_words = read_reference_file(reference_file_path)
 
     all_vocabulary_today = {

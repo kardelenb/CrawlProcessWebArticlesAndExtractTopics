@@ -338,7 +338,7 @@ def process_articles():
     for sentence in generic_sentences:
         logging.info(f"- {sentence}")
 
-    reference_file_path = os.path.join(project_directory, 'zusammengefasst.txt')
+    reference_file_path = os.path.join(project_directory, 'wortschatzLeipzig.txt')
     reference_words = read_reference_file(reference_file_path)
 
     all_vocabulary_today = {

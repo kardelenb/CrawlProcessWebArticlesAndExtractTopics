@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['indyMedia']
+collection = db['schweizerZeit']
 
 def crawl(initial_url):
     def create_webdriver():
@@ -335,7 +335,7 @@ def get_all_sitemap_links(base_url):
     possible_sitemaps = [
         f"{base_url}/sitemap.xml",
         f"{base_url}/wp-sitemap.xml",
-        f"{base_url}/sitemap_index.xml"
+        f"{base_url}/sitemap_index.xml",
         f"{base_url}/sitemap-1.xml"
     ]
 
