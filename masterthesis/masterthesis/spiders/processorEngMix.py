@@ -1,4 +1,5 @@
 import spacy
+from collections import Counter
 from germanetpy import germanet
 from germanetpy.filterconfig import Filterconfig
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -7,6 +8,7 @@ import nltk
 import re
 from pymongo import MongoClient, errors
 from datetime import datetime
+from langdetect import detect_langs
 import logging
 import os
 # Logging konfigurieren
@@ -36,19 +38,42 @@ processed_collection_de.create_index('url')
 processed_collection_en.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-start_date = datetime.now().strftime('%Y-%m-%d')
-#start_date = '2024-10-24'
+#start_date = datetime.now().strftime('%Y-%m-%d')
+start_date = '2024-11-04'
 
 def detect_language(text):
     german_count = sum(1 for word in text.split() if word.lower() in german_stop_words)
     english_count = sum(1 for word in text.split() if word.lower() in english_stop_words)
 
-    if german_count > english_count:
+    if german_count > english_count and german_count > len(text.split()) * 0.5:
         return 'de'
-    elif english_count > german_count:
+    elif english_count > german_count and english_count > len(text.split()) * 0.5:
         return 'en'
     else:
-        return 'mixed'  # Wenn beide Sprachen ähnlich stark vertreten sind
+        return None
+
+def split_text_by_language(text):
+    """
+    Zerlegt einen gemischten Text in Abschnitte pro Sprache.
+    Gibt ein Dictionary zurück, z. B. {'de': '...', 'en': '...'}.
+    """
+    segments = {}
+    sentences = text.split('.')  # Grobe Aufteilung in Sätze
+    for sentence in sentences:
+        try:
+            detected_languages = detect_langs(sentence)
+            primary_language = max(detected_languages, key=lambda x: x.prob).lang
+            if primary_language not in segments:
+                segments[primary_language] = []
+            segments[primary_language].append(sentence.strip())
+        except Exception:
+            continue
+
+    # Kombiniere die Sätze pro Sprache
+    for lang in segments:
+        segments[lang] = ' '.join(segments[lang])
+
+    return segments
 
 # Speichert den Fortschritt
 def save_progress(last_processed_id, progress_collection):
@@ -86,19 +111,58 @@ current_directory = os.path.dirname(os.path.abspath(__file__))
 # Gehe drei Verzeichnisebenen nach oben, um das Verzeichnis 'MASterarbeit' zu erreichen
 project_directory = os.path.abspath(os.path.join(current_directory, '..', '..', '..'))
 
+# Definiere ein Muster, um mögliche kurze Namen und Kommentare zu erkennen
+name_pattern = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?$")
+WORD_COUNT_THRESHOLD = 4
+
+def is_short_comment(comment):
+    """
+    Prüft, ob ein Kommentar kurz ist und möglicherweise wie ein Name aussieht.
+    Filtert alle Kommentare, die dem Muster entsprechen oder weniger als die Wortschwelle haben.
+    """
+    # Überprüfe, ob der Kommentar dem Namensmuster entspricht oder weniger als die Wortanzahl-Schwelle hat
+    return bool(name_pattern.match(comment.strip())) or len(comment.split()) < WORD_COUNT_THRESHOLD
+
+def filter_comments(comments):
+    """
+    Filtert alle kurzen oder namenartigen Kommentare aus der Liste der Kommentare.
+    """
+    filtered_comments = [comment for comment in comments if not is_short_comment(comment)]
+    return filtered_comments
+
 # Lese die Referenzdatei ein (bereinigte Datei)
 def read_reference_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         reference_words = [line.strip().lower() for line in f]
     return reference_words
 
+# Funktion zum Aufteilen in Sätze
+def split_into_sentences(text):
+    return re.split(r'(?<=[.!?]) +', text)
+
+# Erstellen eines Textprofils und Ermittlung der generischen Sätze
+def create_generic_sentence_list(threshold=5):
+    sentence_counter = Counter()
+    for article in collection.find({}, {"full_text": 1}):
+        sentences = split_into_sentences(article['full_text'])
+        sentence_counter.update(sentences)
+    # Wähle generische Sätze aus, die in mehreren Artikeln vorkommen
+    return {sentence for sentence, count in sentence_counter.items() if count >= threshold}
+
+
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
     phrases = []
-    only_letters = re.compile(r'^[^\W\d_]+$')
+    only_letters_or_hyphen = re.compile(r'^[A-Za-zäöüÄÖÜß]+(-[A-Za-zäöüÄÖÜß]+)*$')  # Erlaubt nur Buchstaben und Bindestriche  # Keine führenden/abschließenden Bindestriche
 
     # Hier werden nur Tokens betrachtet, die keine Stopwords sind und alphabetisch sind
-    tokens = [token for token in doc if not token.is_stop and only_letters.match(token.text)]
+    tokens = [
+        token for token in doc
+        if not token.is_stop
+           and only_letters_or_hyphen.match(token.text)
+           and not token.text.startswith('-')  # Keine führenden Bindestriche
+           and not token.text.endswith('-')  # Keine abschließenden Bindestriche
+    ]
 
     # Sliding-Window über die Token-Liste, um N-Gramme zu erstellen
     for i in range(len(tokens) - n + 1):
@@ -121,13 +185,15 @@ def extract_keywords_and_phrases(text, language, pos_tags=['NOUN', 'ADJ', 'VERB'
     else:
         doc = nlp_en(text)
 
-    # Einfache Wort-Extraktion (wie zuvor)
+        # Einfache Wort-Extraktion (wie zuvor)
     single_keywords = [
         token.text
         for token in doc
         if token.pos_ in pos_tags
            and not token.is_stop
-           and re.match(r'^[^\W\d_]+$', token.text)  # Nur alphabetische Wörter
+           and re.match(r'^[A-Za-zäöüÄÖÜß]+(-[A-Za-zäöüÄÖÜß]+)*$', token.text)  # Nur alphabetische Zeichen und Bindestriche
+           and not token.text.startswith('-')  # Keine führenden Bindestriche
+           and not token.text.endswith('-')  # Keine abschließenden Bindestriche
     ]
 
     # Mehrwortphrasen (z.B. N-Gramme) extrahieren, bei denen das zweite Wort ein Nomen ist
@@ -267,6 +333,15 @@ def process_article_language(language, article, comments, full_text, reference_w
                              all_vocabulary_today_en, progress_collection):
     url = article['url']
 
+    # Segmentiere den Artikeltext nach Sprache
+    segmented_text = split_text_by_language(full_text)
+
+    # Verarbeite nur den Abschnitt in der Zielsprache
+    text_to_process = segmented_text.get(language)
+    if not text_to_process:
+        logging.info(f"Kein Text in Sprache {language} für Artikel {url}. Überspringe.")
+        return
+
     # Überprüfe, ob der Artikel bereits verarbeitet wurde
     if article_already_processed(url, processed_collection):
         logging.info(f"Artikel {url} wurde bereits verarbeitet. Überspringe.")
@@ -274,13 +349,15 @@ def process_article_language(language, article, comments, full_text, reference_w
         return
 
     # Extrahiere Schlüsselwörter und Phrasen aus dem Artikel
-    filtered_article_phrases = extract_keywords_and_phrases(full_text, language, n=2)
+    filtered_article_phrases = extract_keywords_and_phrases(text_to_process, language, n=2)
+
+    # Filtere Kommentare
+    filtered_comments = filter_comments(comments)
 
     # Extrahiere Phrasen aus den Kommentaren, falls vorhanden
     filtered_comment_phrases = []
-    if comments:
-        for comment in comments:
-            filtered_comment_phrases.extend(extract_keywords_and_phrases(comment, language, n=2))
+    for comment in filtered_comments:
+        filtered_comment_phrases.extend(extract_keywords_and_phrases(comment, language, n=2))
 
     # Wenn weder Artikel- noch Kommentarphrasen vorhanden sind, überspringe den Artikel
     if not filtered_article_phrases and not filtered_comment_phrases:
@@ -292,9 +369,17 @@ def process_article_language(language, article, comments, full_text, reference_w
     new_comment_phrases = []
 
     if language == 'de':
-        # Vergleich der deutschen Phrasen mit der Referenzdatei
-        new_article_phrases = compare_phrases_with_reference(filtered_article_phrases, reference_words)
-        new_comment_phrases = compare_phrases_with_reference(filtered_comment_phrases, reference_words)
+        # Vergleich der deutschen Phrasen mit der Referenzdatei und Spracheinschränkung
+        new_article_phrases = [
+            phrase for phrase in compare_phrases_with_reference(filtered_article_phrases, reference_words)
+            if
+            all(word.lower() in german_stop_words or re.match(r'^[A-Za-zäöüÄÖÜß-]+$', word) for word in phrase.split())
+        ]
+        new_comment_phrases = [
+            phrase for phrase in compare_phrases_with_reference(filtered_comment_phrases, reference_words)
+            if
+            all(word.lower() in german_stop_words or re.match(r'^[A-Za-zäöüÄÖÜß-]+$', word) for word in phrase.split())
+        ]
 
         # Aktualisiere nur das deutsche Vokabular
         for phrase in new_article_phrases:
@@ -302,15 +387,21 @@ def process_article_language(language, article, comments, full_text, reference_w
         for phrase in new_comment_phrases:
             update_vocabulary(phrase, start_date, 'comment', vocabulary_collection_de, all_vocabulary_today_de)
 
+
     elif language == 'en':
-        # Überprüfung der englischen Phrasen mit WordNet
+
+        # Vergleich der englischen Phrasen mit WordNet und Spracheinschränkung
+
         new_article_phrases = [
             phrase for phrase in filtered_article_phrases
             if not any(wordnet.synsets(word) for word in phrase.split())
+               and all(word.lower() in english_stop_words or re.match(r'^[A-Za-z-]+$', word) for word in phrase.split())
         ]
+
         new_comment_phrases = [
             phrase for phrase in filtered_comment_phrases
             if not any(wordnet.synsets(word) for word in phrase.split())
+               and all(word.lower() in english_stop_words or re.match(r'^[A-Za-z-]+$', word) for word in phrase.split())
         ]
 
         # Aktualisiere nur das englische Vokabular
@@ -323,7 +414,7 @@ def process_article_language(language, article, comments, full_text, reference_w
     processed_collection.insert_one({
         'title': article['title'],
         'url': article['url'],
-        'full_text': full_text,
+        'full_text': text_to_process,
         'new_article_phrases': new_article_phrases,
         'new_comment_phrases': new_comment_phrases,
         'first_processed': start_date,
@@ -335,26 +426,20 @@ def process_article_language(language, article, comments, full_text, reference_w
 
 
 # Verarbeitet Artikel basierend auf der erkannten Sprache
-# Verarbeitet Artikel basierend auf der erkannten Sprache
 def process_articles():
-    reference_file_path_de = os.path.join(project_directory, 'output3.txt')
+    # Generische Sätze vorab ermitteln
+    generic_sentences = create_generic_sentence_list(threshold=5)  # Threshold anpassen, falls nötig
+    logging.info(f"Generische Sätze identifiziert: {len(generic_sentences)}")
+
+    # Ausgabe der generischen Sätze im Log
+    logging.info("Liste der generischen Sätze:")
+    for sentence in generic_sentences:
+        logging.info(f"- {sentence}")
+
+    reference_file_path_de = os.path.join(project_directory, 'wortschatzLeipzig.txt')
 
     # Lade die deutsche Referenzdatei
     reference_words_de = read_reference_file(reference_file_path_de)
-
-    # Hole die zuletzt verarbeiteten IDs für Deutsch und Englisch
-    last_processed_id_de = get_last_processed_id(progress_collection_de)
-    last_processed_id_en = get_last_processed_id(progress_collection_en)
-
-    # Separate Abfragen für deutsche und englische Artikel
-    query_de = {}
-    query_en = {}
-
-    if last_processed_id_de:
-        query_de = {'_id': {'$gt': last_processed_id_de}}  # Abfrage für deutsche Artikel
-
-    if last_processed_id_en:
-        query_en = {'_id': {'$gt': last_processed_id_en}}  # Abfrage für englische Artikel
 
     all_vocabulary_today_de = {
         'new_phrases': set(),
@@ -365,93 +450,70 @@ def process_articles():
         'existing_phrases': set()
     }
 
+    # Hole die zuletzt verarbeiteten IDs für Deutsch und Englisch
+    last_processed_id_de = get_last_processed_id(progress_collection_de)
+    last_processed_id_en = get_last_processed_id(progress_collection_en)
+
+    query = {}
+    if last_processed_id_de or last_processed_id_en:
+        query = {'_id': {'$gt': min(last_processed_id_de, last_processed_id_en)}}
     try:
         with client.start_session() as session:
-            # Verarbeite deutsche Artikel
-            cursor_de = collection.find(query_de, no_cursor_timeout=True, session=session).batch_size(100)
+            cursor = collection.find(query, no_cursor_timeout=True, session=session).batch_size(100)
 
             try:
-                for article in cursor_de:
+                for article in cursor:
                     url = article['url']
                     full_text = article['full_text']
+                    comments = article.get('comments', [])
 
                     # Überspringe Artikel, wenn 'full_text' leer ist
                     if not full_text:
                         logging.warning(f"Artikel {url} hat keinen Text. Überspringe.")
                         continue
 
-                    comments = article.get('comments', [])
-                    language = detect_language(full_text)
 
-                    if language == 'de':
-                        process_article_language(
-                            'de', article, comments, full_text, reference_words_de,
-                            processed_collection_de, vocabulary_collection_de, vocabulary_collection_en,
-                            all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_de
-                        )
+                    # Entferne generische Sätze aus dem Text
+                    sentences = split_into_sentences(full_text)
+                    filtered_text = " ".join(sentence for sentence in sentences if sentence not in generic_sentences)
 
-
-                    elif language == 'mixed':
-                        # Gemischte Sprache: sowohl Deutsch als auch Englisch verarbeiten
-                        process_article_language(
-                            'de', article, comments, full_text, reference_words_de,
-                            processed_collection_de, vocabulary_collection_de, vocabulary_collection_en,
-                            all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_de
-                        )
-
-                        process_article_language(
-                            'en', article, comments, full_text, None,
-                            processed_collection_en, vocabulary_collection_de, vocabulary_collection_en,
-                            all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_en
-                        )
-
-            except errors.CursorNotFound as e:
-                logging.error(f"CursorNotFound-Fehler bei deutschen Artikeln: {e}")
-                process_articles()  # Rekursiver Neustart für deutsche Artikel
-            finally:
-                cursor_de.close()
-
-            # Verarbeite englische Artikel
-            cursor_en = collection.find(query_en, no_cursor_timeout=True, session=session).batch_size(100)
-
-            try:
-                for article in cursor_en:
-                    url = article['url']
-                    full_text = article['full_text']
-
-                    # Überspringe Artikel, wenn 'full_text' leer ist
-                    if not full_text:
-                        logging.warning(f"Artikel {url} hat keinen Text. Überspringe.")
+                    # Überspringe Artikel, wenn der gefilterte Text leer ist
+                    if not filtered_text.strip():
+                        logging.warning(f"Artikel {url} enthält nur generische Sätze. Überspringe.")
                         continue
 
-                    comments = article.get('comments', [])
-                    language = detect_language(full_text)
+                    # Segmentiere Text nach Sprache
+                    segmented_text = split_text_by_language(filtered_text)
 
-                    if language == 'en':
+                    # Verarbeite den deutschen Teil
+                    if 'de' in segmented_text:
                         process_article_language(
-                            'en', article, comments, full_text, None,
+                            'de', article, comments, segmented_text['de'], reference_words_de,
+                            processed_collection_de, vocabulary_collection_de, vocabulary_collection_en,
+                            all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_de
+                        )
+
+                    # Verarbeite den englischen Teil
+                    if 'en' in segmented_text:
+                        process_article_language(
+                            'en', article, comments, segmented_text['en'], None,
                             processed_collection_en, vocabulary_collection_de, vocabulary_collection_en,
                             all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_en
                         )
 
             except errors.CursorNotFound as e:
-                logging.error(f"CursorNotFound-Fehler bei englischen Artikeln: {e}")
-                process_articles()  # Rekursiver Neustart für englische Artikel
+                logging.error(f"CursorNotFound-Fehler bei Artikeln: {e}")
+                process_articles()
             finally:
-                cursor_en.close()
+                cursor.close()
 
     except Exception as e:
         logging.error(f"Fehler beim Starten der MongoDB-Sitzung: {e}")
 
-    logging.info(f"Neue Phrasen für Deutsch: {list(all_vocabulary_today_de['new_phrases'])}")
-    logging.info(f"Bestehende Phrasen für Deutsch: {list(all_vocabulary_today_de['existing_phrases'])}")
-    logging.info(f"Neue Phrasen für Englisch: {list(all_vocabulary_today_en['new_phrases'])}")
-    logging.info(f"Bestehende Phrasen für Englisch: {list(all_vocabulary_today_en['existing_phrases'])}")
-
-    # Rufe am Ende die Funktion auf, um die tägliche Zusammenfassung zu speichern
+        # Tägliche Zusammenfassungen speichern
     save_daily_summary(
-        list(all_vocabulary_today_de['new_phrases']),  # neue Phrasen in deutschen Artikeln
-        list(all_vocabulary_today_de['existing_phrases']),  # wiederholte Phrasen in deutschen Artikeln
+        list(all_vocabulary_today_de['new_phrases']),
+        list(all_vocabulary_today_de['existing_phrases']),
         start_date,
         daily_summary_collection_de,
         vocabulary_growth_collection_de,
@@ -459,8 +521,8 @@ def process_articles():
     )
 
     save_daily_summary(
-        list(all_vocabulary_today_en['new_phrases']),  # neue Phrasen in englischen Artikeln
-        list(all_vocabulary_today_en['existing_phrases']),  # wiederholte Phrasen in englischen Artikeln
+        list(all_vocabulary_today_en['new_phrases']),
+        list(all_vocabulary_today_en['existing_phrases']),
         start_date,
         daily_summary_collection_en,
         vocabulary_growth_collection_en,

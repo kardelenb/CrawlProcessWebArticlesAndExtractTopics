@@ -31,7 +31,7 @@ processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
 #start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-11-04'
+start_date = '2024-09-21'
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -107,10 +107,16 @@ def check_word_in_germanet_ignore_case(word):
 # Korrigierte Funktion, um Phrasen zu extrahieren, bei denen die Wörter direkt aufeinander folgen
 def extract_phrases_with_noun_as_second(doc, pos_tags=['NOUN'], preceding_tags=['ADJ', 'VERB'], n=2):
     phrases = []
-    only_letters_or_hyphen = re.compile(r'^[A-Za-zäöüÄÖÜß-]+$')  # Erlaubt nur Buchstaben und Bindestriche
+    only_letters_or_hyphen = re.compile(r'^[A-Za-zäöüÄÖÜß]+(-[A-Za-zäöüÄÖÜß]+)*$')  # Erlaubt nur Buchstaben und Bindestriche  # Keine führenden/abschließenden Bindestriche
 
     # Hier werden nur Tokens betrachtet, die keine Stopwords sind und alphabetisch sind
-    tokens = [token for token in doc if not token.is_stop and only_letters_or_hyphen.match(token.text)]
+    tokens = [
+        token for token in doc
+        if not token.is_stop
+           and only_letters_or_hyphen.match(token.text)
+           and not token.text.startswith('-')  # Keine führenden Bindestriche
+           and not token.text.endswith('-')  # Keine abschließenden Bindestriche
+    ]
 
     # Sliding-Window über die Token-Liste, um N-Gramme zu erstellen
     for i in range(len(tokens) - n + 1):
@@ -139,7 +145,9 @@ def extract_keywords_and_phrases(text, language, pos_tags=['NOUN', 'ADJ', 'VERB'
         for token in doc
         if token.pos_ in pos_tags
            and not token.is_stop
-           and re.match(r'^[A-Za-zäöüÄÖÜß-]+$', token.text)  # Nur alphabetische Zeichen und Bindestriche
+           and re.match(r'^[A-Za-zäöüÄÖÜß]+(-[A-Za-zäöüÄÖÜß]+)*$', token.text)  # Nur alphabetische Zeichen und Bindestriche
+           and not token.text.startswith('-')  # Keine führenden Bindestriche
+           and not token.text.endswith('-')  # Keine abschließenden Bindestriche
     ]
 
     # Mehrwortphrasen (z.B. N-Gramme) extrahieren, bei denen das zweite Wort ein Nomen ist
