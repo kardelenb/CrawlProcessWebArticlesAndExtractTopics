@@ -244,34 +244,36 @@ def update_vocabulary(phrase, start_date, source, vocabulary_collection, all_voc
 
 # Speichert die tägliche Zusammenfassung (Eintrag wird nur einmal pro Tag erstellt oder aktualisiert)
 def save_daily_summary(new_article_phrases, new_comment_phrases, start_date, daily_summary_collection, vocabulary_growth_collection, vocabulary_collection):
+    # Berechne die Häufigkeit der neuen Wörter für den Tag
     article_word_frequencies = {}
     comment_word_frequencies = {}
 
-    # Zähle die Häufigkeit der neuen Wörter in Artikeln
+    # Zähle die Häufigkeit der Wörter in Artikeln
     for word in new_article_phrases:
         article_word_frequencies[word] = article_word_frequencies.get(word, 0) + 1
 
-    # Zähle die Häufigkeit der neuen Wörter in Kommentaren
+    # Zähle die Häufigkeit der Wörter in Kommentaren
     for word in new_comment_phrases:
         comment_word_frequencies[word] = comment_word_frequencies.get(word, 0) + 1
 
-    new_words_today = []
-    repeated_words_today = []
+    # Unterscheide zwischen neuen und bereits gesehenen Wörtern
+    new_words_today = set()
+    repeated_words_today = set()
 
-    # Überprüfe, ob Wörter neu oder wiederholt sind, basierend auf der ersten Sichtung
-    for word in new_article_phrases + new_comment_phrases:
-        word_entry = vocabulary_collection.find_one({'word': word})  # Nutzung der korrekten Sprachsammlung (Deutsch oder Englisch)
+    for word in article_word_frequencies.keys() | comment_word_frequencies.keys():
+        word_entry = vocabulary_collection.find_one({'word': word})
 
+        # Wort ist neu, wenn es heute zum ersten Mal gesehen wurde
         if word_entry and word_entry['first_seen'] == start_date:
-            new_words_today.append(word)
+            new_words_today.add(word)
         elif word_entry:
-            repeated_words_today.append(word)
+            repeated_words_today.add(word)
 
-    # Prüfe, ob es bereits eine tägliche Zusammenfassung gibt
+    # Prüfe, ob es bereits einen Eintrag für das aktuelle Datum gibt
     existing_entry = daily_summary_collection.find_one({'date': start_date})
 
     if existing_entry:
-        # Aktualisiere die bestehende tägliche Zusammenfassung
+        # Aktualisiere den bestehenden Eintrag
         daily_summary_collection.update_one(
             {'date': start_date},
             {
@@ -280,27 +282,30 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date, dai
                                                  **article_word_frequencies},
                     'comment_word_frequencies': {**existing_entry.get('comment_word_frequencies', {}),
                                                  **comment_word_frequencies},
-                    'new_words_today': list(set(existing_entry.get('new_words_today', []) + new_words_today)),
+                    'new_words_today': list(new_words_today | set(existing_entry.get('new_words_today', []))),
                     'repeated_words_today': list(
-                        set(existing_entry.get('repeated_words_today', []) + repeated_words_today)),
-                    'new_word_count': len(set(existing_entry.get('new_words_today', []) + new_words_today)),
-                    'repeated_word_count': len(set(existing_entry.get('repeated_words_today', []) + repeated_words_today))
+                        repeated_words_today | set(existing_entry.get('repeated_words_today', []))),
+                    'new_word_count': len(new_words_today | set(existing_entry.get('new_words_today', []))),
+                    'repeated_word_count': len(
+                        repeated_words_today | set(existing_entry.get('repeated_words_today', [])))
                 }
             }
         )
+        logging.info(f"Tägliche Zusammenfassung für {start_date} wurde aktualisiert.")
     else:
-        # Erstelle eine neue tägliche Zusammenfassung
+        # Erstelle einen neuen Eintrag
         daily_summary_collection.insert_one({
             'date': start_date,
             'article_word_frequencies': article_word_frequencies,
             'comment_word_frequencies': comment_word_frequencies,
-            'new_words_today': new_words_today,
-            'repeated_words_today': repeated_words_today,
+            'new_words_today': list(new_words_today),
+            'repeated_words_today': list(repeated_words_today),
             'new_word_count': len(new_words_today),
             'repeated_word_count': len(repeated_words_today)
         })
+        logging.info(f"Neue tägliche Zusammenfassung für {start_date} erstellt.")
 
-    # Aktualisiere das Vokabelwachstum
+    # Speichere das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {

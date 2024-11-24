@@ -18,20 +18,21 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['schweizerZeit']
-processed_collection = db['test0311_processed']
-vocabulary_collection = db['test0311_vocabulary']
-daily_summary_collection = db['test0311_daily_summary']
+collection = db['rechteRand']
+processed_collection = db['RechteRandprocessed']
+vocabulary_collection = db['RechteRandVocab']
+daily_summary_collection = db['RechteRandDaily']
+vocabulary_growth_collection = db['RRvocabulary_growth']
 
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['test0311_progress']
+progress_collection = db['RRprocess_progress']
 
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
 #start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-10-02'
+start_date = '2024-11-14'
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -207,36 +208,30 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
 
     # Zähle die Häufigkeit der Wörter in Artikeln
     for word in new_article_phrases:
-        if word in article_word_frequencies:
-            article_word_frequencies[word] += 1
-        else:
-            article_word_frequencies[word] = 1
+        article_word_frequencies[word] = article_word_frequencies.get(word, 0) + 1
 
     # Zähle die Häufigkeit der Wörter in Kommentaren
     for word in new_comment_phrases:
-        if word in comment_word_frequencies:
-            comment_word_frequencies[word] += 1
-        else:
-            comment_word_frequencies[word] = 1
+        comment_word_frequencies[word] = comment_word_frequencies.get(word, 0) + 1
 
-    # Unterscheide zwischen neuen und bereits gesehenen Wörtern basierend auf "first_seen"
-    new_words_today = []
-    repeated_words_today = []
+    # Unterscheide zwischen neuen und bereits gesehenen Wörtern
+    new_words_today = set()
+    repeated_words_today = set()
 
-    for word in new_article_phrases + new_comment_phrases:
+    for word in article_word_frequencies.keys() | comment_word_frequencies.keys():
         word_entry = vocabulary_collection.find_one({'word': word})
 
         # Wort ist neu, wenn es heute zum ersten Mal gesehen wurde
         if word_entry and word_entry['first_seen'] == start_date:
-            new_words_today.append(word)
+            new_words_today.add(word)
         elif word_entry:
-            repeated_words_today.append(word)
+            repeated_words_today.add(word)
 
     # Prüfe, ob es bereits einen Eintrag für das aktuelle Datum gibt
     existing_entry = daily_summary_collection.find_one({'date': start_date})
 
     if existing_entry:
-        # Aktualisiere den bestehenden Eintrag, falls er bereits existiert
+        # Aktualisiere den bestehenden Eintrag
         daily_summary_collection.update_one(
             {'date': start_date},
             {
@@ -245,38 +240,34 @@ def save_daily_summary(new_article_phrases, new_comment_phrases, start_date):
                                                  **article_word_frequencies},
                     'comment_word_frequencies': {**existing_entry.get('comment_word_frequencies', {}),
                                                  **comment_word_frequencies},
-                    'new_words_today': list(set(existing_entry.get('new_words_today', []) + new_words_today)),
-                    'repeated_words_today': list(
-                        set(existing_entry.get('repeated_words_today', []) + repeated_words_today)),
-                    'new_word_count': len(set(existing_entry.get('new_words_today', []) + new_words_today)),
-                    'repeated_word_count': len(
-                        set(existing_entry.get('repeated_words_today', []) + repeated_words_today))
+                    'new_words_today': list(new_words_today | set(existing_entry.get('new_words_today', []))),
+                    'repeated_words_today': list(repeated_words_today | set(existing_entry.get('repeated_words_today', []))),
+                    'new_word_count': len(new_words_today | set(existing_entry.get('new_words_today', []))),
+                    'repeated_word_count': len(repeated_words_today | set(existing_entry.get('repeated_words_today', [])))
                 }
             }
         )
         logging.info(f"Tägliche Zusammenfassung für {start_date} wurde aktualisiert.")
     else:
-        # Erstelle einen neuen Eintrag, falls noch keiner existiert
+        # Erstelle einen neuen Eintrag
         daily_summary_collection.insert_one({
             'date': start_date,
             'article_word_frequencies': article_word_frequencies,
             'comment_word_frequencies': comment_word_frequencies,
-            'new_words_today': new_words_today,
-            'repeated_words_today': repeated_words_today,
+            'new_words_today': list(new_words_today),
+            'repeated_words_today': list(repeated_words_today),
             'new_word_count': len(new_words_today),
             'repeated_word_count': len(repeated_words_today)
         })
         logging.info(f"Neue tägliche Zusammenfassung für {start_date} erstellt.")
 
-    # Füge dies hinzu: Speichere das Vokabelwachstum separat
-    vocabulary_growth_collection = db[
-        'test0311_growth']  # Erstelle oder referenziere eine Sammlung für das Vokabelwachstum
+    # Speichere das Vokabelwachstum
     vocabulary_growth_collection.update_one(
         {'date': start_date},
         {
             '$set': {
-                'new_words_count': len(new_words_today),  # Anzahl der neuen Wörter an diesem Tag
-                'repeated_words_count': len(repeated_words_today)  # Anzahl der wiederholten Wörter an diesem Tag
+                'new_words_count': len(new_words_today),
+                'repeated_words_count': len(repeated_words_today)
             }
         },
         upsert=True
@@ -299,7 +290,7 @@ def split_into_sentences(text):
     return re.split(r'(?<=[.!?]) +', text)
 
 # Erstellen eines Textprofils und Ermittlung der generischen Sätze
-def create_generic_sentence_list(threshold=800):
+def create_generic_sentence_list(threshold=5):
     sentence_counter = Counter()
     for article in collection.find({}, {"full_text": 1}):
         sentences = split_into_sentences(article['full_text'])
