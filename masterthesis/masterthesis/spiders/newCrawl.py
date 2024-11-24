@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['schweizerZeit']
+collection = db['sezession0510raw']
 
 def crawl(initial_url):
     def create_webdriver():
@@ -358,7 +358,7 @@ def get_all_sitemap_links(base_url):
     filtered_sitemap_links = [
         link for link in sitemap_links
         if 'posts-post' in link or 'post-sitemap' in link
-           #or 'sitemap' in link
+#or 'sitemap' in link
     ]
 
     # Dedupliziere die Sitemap-Links, damit jeder Link nur einmal verarbeitet wird
@@ -548,40 +548,38 @@ def scrape_article(url, processed_urls, crawled_urls, sitemap_based=True):
             full_text = content['full_text']
             comments = content['comments']
 
-            # Neue Kommentare identifizieren
-            new_comments = [comment for comment in comments if comment not in stored_comments]
-
             if article:
-                # Überprüfe, ob der Artikeltext sich geändert hat
-                if article['full_text'] != full_text or new_comments:
-                    update_fields = {}
+                # Prüfe, ob der Artikeltext oder Kommentare aktualisiert werden müssen
+                update_fields = {}
 
-                    # Wenn der Text sich geändert hat, aktualisieren
-                    if article['full_text'] != full_text:
-                        update_fields['full_text'] = full_text
+                # Vergleiche den Artikeltext
+                if article['full_text'] != full_text:
+                    update_fields['full_text'] = full_text
 
-                    # Wenn es neue Kommentare gibt, aktualisiere nur die Kommentare
-                    if new_comments:
-                        update_fields['comments'] = {'$addToSet': {'$each': new_comments}}
+                # Neue Kommentare als Differenz bestimmen
+                new_comments = set(comments) - stored_comments
 
-                    # Artikel in der Datenbank aktualisieren
-                    if update_fields:
-                        collection.update_one(
-                            {'url': url},
-                            {'$set': update_fields}
-                        )
-                        logging.info(f"Artikel aktualisiert: {url}")
-                    else:
-                        logging.info(f"Artikel ist bereits auf dem neuesten Stand: {url}")
+                if new_comments:
+                    update_fields['comments'] = list(stored_comments | new_comments)  # Union von neuen und gespeicherten Kommentaren
+
+                # Wenn es Änderungen gibt, aktualisiere den Artikel
+                if update_fields:
+                    collection.update_one(
+                        {'url': url},
+                        {'$set': update_fields}
+                    )
+                    logging.info(f"Artikel aktualisiert: {url}")
+                else:
+                    logging.info(f"Artikel ist bereits aktuell: {url}")
             else:
-                # Wenn der Artikel noch nicht existiert, speichern wir den gesamten Artikel
+                # Neuer Artikel, direkt speichern
                 collection.insert_one({
                     'title': title_text,
                     'url': url,
                     'full_text': full_text,
-                    'comments': comments
+                    'comments': list(comments)
                 })
-                logging.info(f"Artikel erfolgreich gespeichert: {url}")
+                logging.info(f"Neuer Artikel gespeichert: {url}")
 
             # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert oder aktualisiert wurde
             processed_urls.add(url)
@@ -650,7 +648,7 @@ def main():
         time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
 
     #Optional: Crawle schnell bestimmte URLs, um schnell zu sein, weil sonst Re-Crawling unten sehr lange dauert
-    #target_url = "https://sezession.de/69742/noch-einmal-menschenpark-und-hundert-stuehle"
+    #target_url = "https://sezession.de/69805/kritik-der-woche-66-abkehr-ein-hafttagebuch"
     #re_crawl_single_url(target_url)
 
     # 4. Optional: Crawle alle bereits gespeicherten URLs erneut
