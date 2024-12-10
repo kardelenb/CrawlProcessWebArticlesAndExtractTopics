@@ -1,5 +1,5 @@
 # Datei öffnen und verarbeiten
-with open('C:/Users/karde/PycharmProjects/pythonProject/masterthesis/masterthesis/deu_mixed-typical_2011_1M-words.txt', 'r', encoding='utf-8') as file, open('deu_mixedtypical_2011.txt', 'w', encoding='utf-8') as output_file:
+with open('/home/kardelenbilir/Dokumente/Projekt/MasterArbeit/masterthesis/masterthesis/spiders/deu_news_2020_1M-words.txt', 'r', encoding='utf-8') as file, open('deu-news-2020.txt', 'w', encoding='utf-8') as output_file:
     for line in file:
         # Zeilen splitten
         parts = line.split('\t')
