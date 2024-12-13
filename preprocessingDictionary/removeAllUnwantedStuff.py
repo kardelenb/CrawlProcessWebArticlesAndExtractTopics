@@ -163,6 +163,6 @@ def remove_trailing_character(input_file, output_file, char_to_remove):
 
 # Beispielaufruf
 input_file = '/masterthesis/spiders/spiders/newwordsNew.txt'
-output_file = 'wortschatzLeipzig.txt'
+output_file = '../wortschatzLeipzig.txt'
 char_to_remove = 'â'  # Das zu entfernende Zeichen
 remove_trailing_character(input_file, output_file, char_to_remove)

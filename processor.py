@@ -18,21 +18,21 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['rechteRand']
-processed_collection = db['RechteRandprocessed']
-vocabulary_collection = db['RechteRandVocab']
-daily_summary_collection = db['RechteRandDaily']
-vocabulary_growth_collection = db['RRvocabulary_growth']
+collection = db['abcd']
+processed_collection = db['abcd1']
+vocabulary_collection = db['abcd2']
+daily_summary_collection = db['abcd3']
+vocabulary_growth_collection = db['abcd4']
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['RRprocess_progress']
+progress_collection = db['abcd5']
 
 
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-#start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-12-12'
+start_date = datetime.now().strftime('%Y-%m-%d')
+
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -63,11 +63,8 @@ nltk.download('wordnet')
 german_stop_words = set(stopwords.words('german'))
 english_stop_words = set(stopwords.words('english'))
 
-# Bestimme das aktuelle Verzeichnis, in dem das Skript ausgeführt wird
 current_directory = os.path.dirname(os.path.abspath(__file__))
-
-# Gehe drei Verzeichnisebenen nach oben, um das Verzeichnis 'MASterarbeit' zu erreichen
-project_directory = os.path.abspath(os.path.join(current_directory, '..', '..', '..'))
+project_directory = current_directory
 
 # Definiere ein Muster, um mögliche kurze Namen und Kommentare zu erkennen
 name_pattern = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?$")

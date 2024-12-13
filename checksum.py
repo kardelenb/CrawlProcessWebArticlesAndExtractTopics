@@ -29,8 +29,7 @@ vocabulary_growth_collection = db['sezessionGrowth']
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-#start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-12-12'
+start_date = datetime.now().strftime('%Y-%m-%d')
 
 # Lade deutsche und englische spaCy-Modelle
 nlp_de = spacy.load('de_core_news_sm')
@@ -42,7 +41,8 @@ nltk.download('wordnet')
 german_stop_words = set(stopwords.words('german'))
 english_stop_words = set(stopwords.words('english'))
 
-project_directory = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
+current_directory = os.path.dirname(os.path.abspath(__file__))
+project_directory = current_directory
 
 
 # Diese Methode kombiniert den Artikeltext und die Kommentare und erzeugt daraus eine Checksumme.

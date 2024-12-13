@@ -38,8 +38,8 @@ processed_collection_de.create_index('url')
 processed_collection_en.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-#start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-11-04'
+start_date = datetime.now().strftime('%Y-%m-%d')
+
 
 def detect_language(text):
     german_count = sum(1 for word in text.split() if word.lower() in german_stop_words)
@@ -105,11 +105,8 @@ nltk.download('wordnet')
 german_stop_words = set(stopwords.words('german'))
 english_stop_words = set(stopwords.words('english'))
 
-# Bestimme das aktuelle Verzeichnis, in dem das Skript ausgeführt wird
 current_directory = os.path.dirname(os.path.abspath(__file__))
-
-# Gehe drei Verzeichnisebenen nach oben, um das Verzeichnis 'MASterarbeit' zu erreichen
-project_directory = os.path.abspath(os.path.join(current_directory, '..', '..', '..'))
+project_directory = current_directory
 
 # Definiere ein Muster, um mögliche kurze Namen und Kommentare zu erkennen
 name_pattern = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?$")

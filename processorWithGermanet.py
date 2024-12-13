@@ -31,8 +31,8 @@ progress_collection = db['SZprocess_progress']
 processed_collection.create_index('url')
 
 # Lege das Startdatum beim Start des Programms fest
-#start_date = datetime.now().strftime('%Y-%m-%d')
-start_date = '2024-12-10'
+start_date = datetime.now().strftime('%Y-%m-%d')
+
 # Speichert den Fortschritt
 def save_progress(last_processed_id):
     progress_collection.update_one({}, {'$set': {'last_processed_id': last_processed_id}}, upsert=True)
@@ -66,11 +66,8 @@ english_stop_words = set(stopwords.words('english'))
 # Lade GermaNet-Daten
 germanet_object = germanet.Germanet("/home/kardelenbilir/Downloads/GN_V180/GN_V180_XML")
 
-# Bestimme das aktuelle Verzeichnis, in dem das Skript ausgeführt wird
 current_directory = os.path.dirname(os.path.abspath(__file__))
-
-# Gehe drei Verzeichnisebenen nach oben, um das Verzeichnis 'MASterarbeit' zu erreichen
-project_directory = os.path.abspath(os.path.join(current_directory, '..', '..', '..'))
+project_directory = current_directory
 
 # Definiere ein Muster, um mögliche kurze Namen und Kommentare zu erkennen
 name_pattern = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?$")
