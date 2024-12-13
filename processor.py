@@ -1,8 +1,5 @@
 from collections import Counter
 import spacy
-from germanetpy import germanet
-from germanetpy.filterconfig import Filterconfig
-from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords, wordnet
 import nltk
 import re
@@ -18,14 +15,15 @@ logging.getLogger('pymongo').setLevel(logging.WARNING)
 # Verbindung zur MongoDB und Zugriff auf gespeicherte Artikel
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['abcd']
-processed_collection = db['abcd1']
-vocabulary_collection = db['abcd2']
-daily_summary_collection = db['abcd3']
-vocabulary_growth_collection = db['abcd4']
+collection = db['schweizerZeit']
+processed_collection = db['schweizerZeitProcessed']
+vocabulary_collection = db['schweizerZeitVocab']
+daily_summary_collection = db['SchweizerZeitDaily']
+vocabulary_growth_collection = db['SZvocabulary_growth']
+
 
 # Neue Sammlung, um den Fortschritt zu speichern
-progress_collection = db['abcd5']
+progress_collection = db['SZprocess_progress']
 
 
 processed_collection.create_index('url')

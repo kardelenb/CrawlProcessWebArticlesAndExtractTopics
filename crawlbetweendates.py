@@ -1,10 +1,8 @@
 from datetime import datetime
 
-import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 import html
-import time
 import logging
 import socket
 from urllib.parse import urlparse
@@ -15,7 +13,6 @@ import inspect  # Used to inspect the current script's path
 import re  # Regular expressions for cleaning up text
 import requests  # For handling HTTP requests
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
 # Logging konfigurieren

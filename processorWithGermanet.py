@@ -2,7 +2,6 @@ from collections import Counter
 import spacy
 from germanetpy import germanet
 from germanetpy.filterconfig import Filterconfig
-from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords, wordnet
 import nltk
 import re
