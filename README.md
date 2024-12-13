@@ -2,7 +2,7 @@
 
 Dieses Projekt besteht aus zwei Hauptteilen:
 
-1. **Web Scraping**: Ein Python-Skript zum Scraping von Artikeln und Kommentaren von Websites, die Sitemaps bereitstellen. Die Daten werden in einer MongoDB-Datenbank gespeichert.
+1. **Web Scraping**: Ein Python-Skript zum Scraping von Artikeln und Kommentaren von Websites. Es unterstützt sowohl Websites mit Sitemaps als auch solche ohne Sitemaps. Die gesammelten Daten werden in einer MongoDB-Datenbank gespeichert.
 2. **Textanalyse**: Ein zweites Python-Skript, das extrahierte Artikel und Kommentare aus der MongoDB analysiert und neue Wörter oder Phrasen basierend auf einem Wörterbuch vergleicht.
 
 ## Teil 1: Web Scraping
