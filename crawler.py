@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Verbindung zu MongoDB einrichten
 client = MongoClient('mongodb://localhost:27017/')
 db = client['scrapy_database']
-collection = db['abcd']
+collection = db['rechteRand']
 
 def crawl(initial_url):
     def create_webdriver():
@@ -193,7 +193,7 @@ def crawl(initial_url):
 
         try:
             driver.get(url)  # Open the URL in the browser
-            time.sleep(10)
+            #time.sleep(10)
 
             if (dict_request["status_code"] == 200 or dict_request["status_code"] == 302) and "html" in dict_request[
                 "content_type"]:
@@ -257,7 +257,7 @@ def crawl(initial_url):
                         result_urls.extend(new_urls)  # Add new URLs to results
 
                         #save_crawled_url(url)
-                        time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
+                        #time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
 
                 except Exception as e:
                     print(f"Error crawling sub-URL {url}: {e}")
@@ -426,13 +426,16 @@ def extract_content_from_html(html_content):
     if article:
         paragraphs = article.find_all('p')
         list_items = article.find_all('li')
+        em_items = article.find_all('em')
     else:
         # Fallback, wenn kein spezifischer Container gefunden wird
         paragraphs = soup.find_all('p')
         list_items = soup.find_all('li')
+        em_items = article.find_all('em')
+
 
     # Füge den gesamten Text zusammen, aus Paragraphen und Listen
-    full_text = ' '.join(html.unescape(tag.get_text(separator=' ', strip=True)) for tag in paragraphs + list_items)
+    full_text = ' '.join(html.unescape(tag.get_text(separator=' ', strip=True)) for tag in paragraphs + list_items + em_items)
     full_text = full_text.replace('\u00AD', '').replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
     full_text = ' '.join(full_text.split())
 
@@ -579,7 +582,7 @@ def scrape_article(url, processed_urls, crawled_urls, sitemap_based=True):
             # Füge die URL zur processed_urls hinzu, nachdem sie erfolgreich gespeichert oder aktualisiert wurde
             processed_urls.add(url)
             crawled_urls.add(url)
-            time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
+            #time.sleep(10)  # Füge Crawl-Delay von 10 Sekunden hinzu
 
     except requests.RequestException as e:
         logging.error(f"Artikel konnte nicht gescraped werden: {url} aufgrund von {str(e)}")
@@ -643,8 +646,8 @@ def main():
         time.sleep(1)  # Füge eine Pause zwischen den Anfragen hinzu
 
     #Optional: Crawle schnell bestimmte URLs, um schnell zu sein, weil sonst Re-Crawling unten sehr lange dauert
-    target_url = "https://sezession.de/68309/hinter-den-linien-tagebuch"
-    re_crawl_single_url(target_url)
+    #target_url = "https://antifainfoblatt.de/aib144/veranstaltungsreihe-winter-coming"
+    #re_crawl_single_url(target_url)
 
     # 4. Optional: Crawle alle bereits gespeicherten URLs erneut
     #logging.info("Starte das Re-Crawling aller gespeicherten URLs.")
