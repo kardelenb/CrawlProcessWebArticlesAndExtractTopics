@@ -49,6 +49,17 @@ def detect_language(text):
     else:
         return None
 
+def is_english_phrase(phrase):
+    """
+    Überprüft mit langdetect, ob die Phrase als Englisch erkannt wird.
+    Falls ein Fehler auftritt (z. B. weil die Phrase zu kurz ist), wird False zurückgegeben.
+    """
+    try:
+        # detect_langs gibt eine Liste von Language-Objekten zurück, das erste Element ist das wahrscheinlichste.
+        return detect_langs(phrase)[0].lang == 'en'
+    except Exception:
+        return False
+
 def split_text_by_language(text):
     """
     Zerlegt einen gemischten Text in Abschnitte pro Sprache.
@@ -393,13 +404,15 @@ def process_article_language(language, article, comments, full_text, reference_w
 
         new_article_phrases = [
             phrase for phrase in filtered_article_phrases
-            if not any(wordnet.synsets(word) for word in phrase.split())
+            if is_english_phrase(phrase)
+               and not any(wordnet.synsets(word) for word in phrase.split())
                and all(word.lower() in english_stop_words or re.match(r'^[A-Za-z-]+$', word) for word in phrase.split())
         ]
 
         new_comment_phrases = [
             phrase for phrase in filtered_comment_phrases
-            if not any(wordnet.synsets(word) for word in phrase.split())
+            if is_english_phrase(phrase)
+               and not any(wordnet.synsets(word) for word in phrase.split())
                and all(word.lower() in english_stop_words or re.match(r'^[A-Za-z-]+$', word) for word in phrase.split())
         ]
 
@@ -426,6 +439,8 @@ def process_article_language(language, article, comments, full_text, reference_w
 
 # Verarbeitet Artikel basierend auf der erkannten Sprache
 def process_articles():
+    processed_articles = 0  # Zähler initialisieren
+
     # Generische Sätze vorab ermitteln
     generic_sentences = create_generic_sentence_list(threshold=5)  # Threshold anpassen, falls nötig
     logging.info(f"Generische Sätze identifiziert: {len(generic_sentences)}")
@@ -499,6 +514,10 @@ def process_articles():
                             processed_collection_en, vocabulary_collection_de, vocabulary_collection_en,
                             all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_en
                         )
+
+                    # Erhöhe den Zähler und logge den Fortschritt
+                    processed_articles += 1
+                    logging.info(f"Neuer Artikel verarbeitet: {processed_articles}")
 
             except errors.CursorNotFound as e:
                 logging.error(f"CursorNotFound-Fehler bei Artikeln: {e}")
