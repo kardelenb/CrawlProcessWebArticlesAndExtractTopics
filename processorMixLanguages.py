@@ -337,104 +337,94 @@ def process_comments(comments, language, url, processed_collection):
 
 
 # Verarbeitet den Artikel basierend auf der Sprache (deutsch oder englisch)
-def process_article_language(language, article, comments, full_text, reference_words,
+def process_article_language(article, comments, full_text, reference_words,
                              processed_collection, vocabulary_collection_de,
                              vocabulary_collection_en, all_vocabulary_today_de,
                              all_vocabulary_today_en, progress_collection):
     url = article['url']
 
-    # Segmentiere den Artikeltext nach Sprache
+    # Segmentiere den Artikeltext in alle erkannten Sprachsegmente
     segmented_text = split_text_by_language(full_text)
-
-    # Verarbeite nur den Abschnitt in der Zielsprache
-    text_to_process = segmented_text.get(language)
-    if not text_to_process:
-        logging.info(f"Kein Text in Sprache {language} für Artikel {url}. Überspringe.")
+    if not segmented_text:
+        logging.info(f"Kein Text gefunden für Artikel {url}. Überspringe.")
         return
 
     # Überprüfe, ob der Artikel bereits verarbeitet wurde
     if article_already_processed(url, processed_collection):
         logging.info(f"Artikel {url} wurde bereits verarbeitet. Überspringe.")
-        process_comments(comments, language, url, processed_collection)
+        process_comments(comments, None, url, processed_collection)  # Kommentare ggf. separat verarbeiten
         return
 
-    # Extrahiere Schlüsselwörter und Phrasen aus dem Artikel
-    filtered_article_phrases = extract_keywords_and_phrases(text_to_process, language, n=2)
+    new_article_phrases_all = []  # Hier sammeln wir alle neu extrahierten Artikel-Phrasen
+    # Iteriere über alle Sprachsegmente im Artikel
+    for seg_lang, text in segmented_text.items():
+        logging.info(f"Verarbeite Artikel-Segment in Sprache {seg_lang}: {text[:100]}...")
+        phrases = extract_keywords_and_phrases(text, seg_lang, n=2)
+        if seg_lang == 'de':
+            new_phrases = [
+                phrase for phrase in compare_phrases_with_reference(phrases, reference_words)
+            ]
+            for phrase in new_phrases:
+                update_vocabulary(phrase, start_date, 'article', vocabulary_collection_de, all_vocabulary_today_de)
+            new_article_phrases_all.extend(new_phrases)
+        elif seg_lang == 'en':
+            new_phrases = [
+                phrase for phrase in phrases
+                if is_english_phrase(phrase)
+                   and not any(wordnet.synsets(word) for word in phrase.split())
+            ]
+            for phrase in new_phrases:
+                update_vocabulary(phrase, start_date, 'article', vocabulary_collection_en, all_vocabulary_today_en)
+            new_article_phrases_all.extend(new_phrases)
+        else:
+            logging.info(f"Artikel-Segment in unbekannter Sprache ({seg_lang}) wird nicht verarbeitet.")
 
-    # Filtere Kommentare
+    # Verarbeite Kommentare: Auch hier soll für jeden Kommentar alle Sprachsegmente verarbeitet werden.
+    new_comment_phrases_all = []
     filtered_comments = filter_comments(comments)
-
-    # Extrahiere Phrasen aus den Kommentaren, falls vorhanden
-    filtered_comment_phrases = []
     for comment in filtered_comments:
-        filtered_comment_phrases.extend(extract_keywords_and_phrases(comment, language, n=2))
+        comment_segments = split_text_by_language(comment) or {}
+        for seg_lang, seg_text in comment_segments.items():
+            logging.info(f"Kommentar-Segment: '{seg_text[:100]}...' | Erkannt als: {seg_lang}")
+            phrases = extract_keywords_and_phrases(seg_text, seg_lang, n=2)
+            if seg_lang == 'de':
+                new_phrases = [
+                    phrase for phrase in compare_phrases_with_reference(phrases, reference_words)
+                ]
+                for phrase in new_phrases:
+                    update_vocabulary(phrase, start_date, 'comment', vocabulary_collection_de, all_vocabulary_today_de)
+                new_comment_phrases_all.extend(new_phrases)
+            elif seg_lang == 'en':
+                new_phrases = [
+                    phrase for phrase in phrases
+                    if is_english_phrase(phrase)
+                       and not any(wordnet.synsets(word) for word in phrase.split())
+                ]
+                for phrase in new_phrases:
+                    update_vocabulary(phrase, start_date, 'comment', vocabulary_collection_en, all_vocabulary_today_en)
+                new_comment_phrases_all.extend(new_phrases)
+            else:
+                logging.info(f"Kommentar-Segment in unbekannter Sprache ({seg_lang}) wird nicht verarbeitet.")
 
-    # Wenn weder Artikel- noch Kommentarphrasen vorhanden sind, überspringe den Artikel
-    if not filtered_article_phrases and not filtered_comment_phrases:
+    # Wenn weder Artikel- noch Kommentarphrasen extrahiert wurden, überspringe den Artikel.
+    if not new_article_phrases_all and not new_comment_phrases_all:
         logging.warning(f"Artikel {url} enthält keine relevanten Phrasen. Überspringe.")
         return
-
-    # Vergleiche die extrahierten Phrasen mit der Referenzdatei (für Deutsch) oder WordNet (für Englisch)
-    new_article_phrases = []
-    new_comment_phrases = []
-
-    if language == 'de':
-        # Vergleich der deutschen Phrasen mit der Referenzdatei und Spracheinschränkung
-        new_article_phrases = [
-            phrase for phrase in compare_phrases_with_reference(filtered_article_phrases, reference_words)
-            if
-            all(word.lower() in german_stop_words or re.match(r'^[A-Za-zäöüÄÖÜß-]+$', word) for word in phrase.split())
-        ]
-        new_comment_phrases = [
-            phrase for phrase in compare_phrases_with_reference(filtered_comment_phrases, reference_words)
-            if
-            all(word.lower() in german_stop_words or re.match(r'^[A-Za-zäöüÄÖÜß-]+$', word) for word in phrase.split())
-        ]
-
-        # Aktualisiere nur das deutsche Vokabular
-        for phrase in new_article_phrases:
-            update_vocabulary(phrase, start_date, 'article', vocabulary_collection_de, all_vocabulary_today_de)
-        for phrase in new_comment_phrases:
-            update_vocabulary(phrase, start_date, 'comment', vocabulary_collection_de, all_vocabulary_today_de)
-
-
-    elif language == 'en':
-
-        # Vergleich der englischen Phrasen mit WordNet und Spracheinschränkung
-
-        new_article_phrases = [
-            phrase for phrase in filtered_article_phrases
-            if is_english_phrase(phrase)
-               and not any(wordnet.synsets(word) for word in phrase.split())
-               and all(word.lower() in english_stop_words or re.match(r'^[A-Za-z-]+$', word) for word in phrase.split())
-        ]
-
-        new_comment_phrases = [
-            phrase for phrase in filtered_comment_phrases
-            if is_english_phrase(phrase)
-               and not any(wordnet.synsets(word) for word in phrase.split())
-               and all(word.lower() in english_stop_words or re.match(r'^[A-Za-z-]+$', word) for word in phrase.split())
-        ]
-
-        # Aktualisiere nur das englische Vokabular
-        for phrase in new_article_phrases:
-            update_vocabulary(phrase, start_date, 'article', vocabulary_collection_en, all_vocabulary_today_en)
-        for phrase in new_comment_phrases:
-            update_vocabulary(phrase, start_date, 'comment', vocabulary_collection_en, all_vocabulary_today_en)
 
     # Speichere den Artikel in der 'processed_collection'
     processed_collection.insert_one({
         'title': article['title'],
         'url': article['url'],
-        'full_text': text_to_process,
-        'new_article_phrases': new_article_phrases,
-        'new_comment_phrases': new_comment_phrases,
+        'full_text': full_text,
+        'new_article_phrases': new_article_phrases_all,
+        'new_comment_phrases': new_comment_phrases_all,
         'first_processed': start_date,
         'last_processed': start_date
     })
 
     # Speichere den Fortschritt
     save_progress(article['_id'], progress_collection)
+
 
 
 # Verarbeitet Artikel basierend auf der erkannten Sprache
@@ -468,9 +458,12 @@ def process_articles():
     last_processed_id_de = get_last_processed_id(progress_collection_de)
     last_processed_id_en = get_last_processed_id(progress_collection_en)
 
-    query = {}
-    if last_processed_id_de or last_processed_id_en:
-        query = {'_id': {'$gt': min(last_processed_id_de, last_processed_id_en)}}
+    valid_ids = [pid for pid in (last_processed_id_de, last_processed_id_en) if pid is not None]
+    if valid_ids:
+        query = {'_id': {'$gt': min(valid_ids)}}
+    else:
+        query = {}
+
     try:
         with client.start_session() as session:
             cursor = collection.find(query, no_cursor_timeout=True, session=session).batch_size(100)
@@ -496,24 +489,12 @@ def process_articles():
                         logging.warning(f"Artikel {url} enthält nur generische Sätze. Überspringe.")
                         continue
 
-                    # Segmentiere Text nach Sprache
-                    segmented_text = split_text_by_language(filtered_text)
 
                     # Verarbeite den deutschen Teil
-                    if 'de' in segmented_text:
-                        process_article_language(
-                            'de', article, comments, segmented_text['de'], reference_words_de,
-                            processed_collection_de, vocabulary_collection_de, vocabulary_collection_en,
-                            all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_de
-                        )
-
-                    # Verarbeite den englischen Teil
-                    if 'en' in segmented_text:
-                        process_article_language(
-                            'en', article, comments, segmented_text['en'], None,
-                            processed_collection_en, vocabulary_collection_de, vocabulary_collection_en,
-                            all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_en
-                        )
+                    process_article_language(article, comments, filtered_text, reference_words_de,
+                                             processed_collection_de, vocabulary_collection_de,
+                                             vocabulary_collection_en,
+                                             all_vocabulary_today_de, all_vocabulary_today_en, progress_collection_de)
 
                     # Erhöhe den Zähler und logge den Fortschritt
                     processed_articles += 1
